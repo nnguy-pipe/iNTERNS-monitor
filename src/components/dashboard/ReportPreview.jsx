@@ -1,15 +1,14 @@
 function ReportPreview({ report }) {
   return (
     <section id="reports" className="rounded-xl bg-white p-8 border border-slate-200 h-full">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-2">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Report preview</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-900">Latest health report</h2>
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Report</p>
+          <h2 className="mt-1 text-xl font-semibold text-slate-900">Latest health</h2>
         </div>
-        <p className="text-sm text-slate-500">Review production and CI summary details.</p>
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg bg-slate-50 p-6 border border-slate-200">
           <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Health score</p>
           <p className="mt-3 text-5xl font-semibold text-slate-900">{report.healthScore}</p>

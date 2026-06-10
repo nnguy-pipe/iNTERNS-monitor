@@ -66,21 +66,6 @@ function App() {
       />
       <PageShell>
         <div className="space-y-10">
-          <div className="rounded-3xl border border-sky-200 bg-sky-50/90 p-6 text-slate-900 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">Demo guide</p>
-                <h2 className="mt-2 text-xl font-semibold text-slate-900">Show the critical alert path</h2>
-              </div>
-              <div className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 ring-1 ring-slate-200">
-                Current environment: {environment}
-              </div>
-            </div>
-            <p className="mt-4 max-w-3xl text-slate-700 leading-7">
-              Use the CI / PROD toggle to switch between a mostly healthy merge validation story and a clearly degraded production state with a critical memory alert. The health score and active alerts are intentionally prominent for demo impact.
-            </p>
-          </div>
-
           <HealthSummary
             status={healthStatus}
             score={healthScore}
