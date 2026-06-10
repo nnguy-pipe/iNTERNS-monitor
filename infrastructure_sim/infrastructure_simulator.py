@@ -20,6 +20,8 @@ import time
 import random
 import math
 import json
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 from collections import defaultdict
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Callable, Optional
@@ -30,6 +32,7 @@ class SubsystemState:
     name: str
     cpu: float  # percent 0..100
     ram: float  # MB
+    active_users: int = 0  # count of active users affecting this subsystem
 
 class Subsystem:
     """A subsystem with simple stochastic CPU and RAM models.
@@ -55,12 +58,13 @@ class Subsystem:
         self.cpu_trend = 0.0
         self.ram_trend = 0.0
 
-    def step(self, dt: float, external_load: float = 0.0, event_spike: float = 0.0):
+    def step(self, dt: float, external_load: float = 0.0, event_spike: float = 0.0, active_users: int = 0):
         """Advance simulation by dt seconds.
 
         external_load: a multiplier-like value (0..1) representing how much external usage
         affects this subsystem (e.g., fraction of user requests hitting it).
         event_spike: additive CPU% spike caused by discrete events (e.g. login handling)
+        active_users: count of active users (metric for user-load tracking)
         """
         # CPU trend: small random walk
         self.cpu_trend += random.gauss(0, 0.01) * dt
@@ -100,18 +104,19 @@ class Subsystem:
 
         self.ram = max(0.0, new_ram)
 
-        return SubsystemState(self.name, round(self.cpu, 3), round(self.ram, 2))
+        return SubsystemState(self.name, round(self.cpu, 3), round(self.ram, 2), active_users)
 
 class SystemModel:
     def __init__(self, subsystems: List[Subsystem]):
         self.subsystems = subsystems
 
-    def step(self, dt: float, external_pattern: Dict[str, float], event_spikes: Dict[str, float]):
+    def step(self, dt: float, external_pattern: Dict[str, float], event_spikes: Dict[str, float], active_users_pattern: Dict[str, int]):
         states = []
         for s in self.subsystems:
             ext = external_pattern.get(s.name, 0.0)
             spike = event_spikes.get(s.name, 0.0)
-            states.append(s.step(dt, ext, spike))
+            users = active_users_pattern.get(s.name, 0)
+            states.append(s.step(dt, ext, spike, users))
         return states
 
 # ---------------------- External Patterns ----------------------
@@ -189,52 +194,100 @@ class Simulation:
         steps = max(1, int(self.duration / self.tick))
         names = [s.name for s in self.system.subsystems]
 
-        # For sustained presets (like high_cpu) construct a persistent external base once
+        # Adjust RAM behavior for high_ram / low_ram / high_users / low_users presets
+        if preset == 'high_ram':
+            multiplier = 0.005
+            for s in self.system.subsystems:
+                s.ram_mode = 'leak'
+                s.leak_rate = max(s.leak_rate, s.base_ram * multiplier)
+        elif preset == 'low_ram':
+            multiplier = 0.002
+            for s in self.system.subsystems:
+                s.ram_mode = 'leak'
+                s.leak_rate = min(s.leak_rate, - (s.base_ram * multiplier))
+        elif preset == 'high_users':
+            # high user load also triggers leak (memory grows with user cache/sessions)
+            multiplier = 0.003
+            for s in self.system.subsystems:
+                s.ram_mode = 'leak'
+                s.leak_rate = max(s.leak_rate, s.base_ram * multiplier)
+        elif preset == 'low_users':
+            # minimal user load; stable or slight decay
+            for s in self.system.subsystems:
+                s.ram_mode = 'leak'
+                s.leak_rate = min(s.leak_rate, - (s.base_ram * 0.0005))
+
+        # For sustained presets construct persistent external base once
         sustained_base_ext = None
+        sustained_user_base = None
         if preset == 'high_cpu':
             rng = self.pattern_gen.rng
-            # target sustained external load 0.7..0.9 per subsystem
             sustained_base_ext = {n: rng.uniform(0.7, 0.9) for n in names}
+        elif preset == 'high_users':
+            rng = self.pattern_gen.rng
+            # scale active users per subsystem: web/app more, db/cache less
+            sustained_user_base = {
+                'web': rng.randint(500, 800),
+                'app': rng.randint(400, 700),
+                'db': rng.randint(50, 150),
+                'cache': rng.randint(100, 300)
+            }
+        elif preset == 'low_users':
+            rng = self.pattern_gen.rng
+            sustained_user_base = {'web': rng.randint(10, 50), 'app': rng.randint(5, 30), 'db': rng.randint(1, 10), 'cache': rng.randint(5, 20)}
 
         for i in range(steps):
             # generate external pattern for this tick
             if sustained_base_ext is not None:
-                # apply small per-tick jitter and minor stochastic extra traffic
                 jitter = {n: self.pattern_gen.rng.uniform(-0.03, 0.03) for n in names}
                 ext = {n: max(0.0, sustained_base_ext[n] + jitter[n]) for n in names}
                 extra = self.pattern_gen.combined(steady_i=0.0, lam=0.2, per_login_load=0.005, burst_prob=0.01, burst_mag=0.05)
                 for n, v in extra.items():
                     ext[n] = ext.get(n, 0.0) + v
+            elif preset == 'high_users':
+                # high user load driven by sustained user count
+                ext = self.pattern_gen.combined(steady_i=0.1, lam=3.0, per_login_load=0.08, burst_prob=0.25, burst_mag=0.9)
+            elif preset == 'low_users':
+                # minimal user-driven load
+                ext = self.pattern_gen.combined(steady_i=0.001, lam=0.05, per_login_load=0.002, burst_prob=0.001, burst_mag=0.02)
             else:
                 if preset == 'high_cpu':
                     ext = self.pattern_gen.combined(steady_i=0.05, lam=2.0, per_login_load=0.05, burst_prob=0.15, burst_mag=0.6)
                 elif preset == 'low_cpu':
                     ext = self.pattern_gen.combined(steady_i=0.005, lam=0.1, per_login_load=0.01, burst_prob=0.005, burst_mag=0.1)
                 elif preset == 'high_ram':
-                    # larger external values so RAM_external = external * base_ram * 0.5 grows noticeably
                     ext = self.pattern_gen.combined(steady_i=0.03, lam=1.0, per_login_load=0.02, burst_prob=0.2, burst_mag=0.8)
                 elif preset == 'low_ram':
                     ext = self.pattern_gen.combined(steady_i=0.002, lam=0.05, per_login_load=0.005, burst_prob=0.001, burst_mag=0.05)
                 else:
                     ext = self.pattern_gen.combined()
 
-            # compute event spikes (simulate immediate CPU spikes per login event)
-            # initialize
+            # compute event spikes
             event_spikes = {name: 0.0 for name in names}
-            # For sustained high_cpu avoid extra large spikes from thresholding; keep small transient spikes only
             if sustained_base_ext is not None:
-                # small transient jitter-based spikes
+                # small transient spikes for high_cpu
                 for name, val in ext.items():
-                    # if the jitter pushed it above 0.95, add a small spike
                     if val > 0.95:
                         event_spikes[name] = min(20.0, (val - 0.9) * 100.0)
             else:
-                # emulate a simple mapping: external pattern entries above threshold cause spike
                 for name, val in ext.items():
                     if val > 0.2:
-                        event_spikes[name] = min(50.0, val * 100.0)  # scale to CPU percent
+                        event_spikes[name] = min(50.0, val * 100.0)
 
-            states = self.system.step(self.tick, ext, event_spikes)
+            # Generate active users pattern
+            active_users = {}
+            if sustained_user_base is not None:
+                # apply jitter around sustained base
+                for n in names:
+                    base = sustained_user_base.get(n, 100)
+                    jitter = self.pattern_gen.rng.randint(max(0, int(base * -0.1)), int(base * 0.1))
+                    active_users[n] = max(0, base + jitter)
+            else:
+                # default minimal users
+                active_users = {n: self.pattern_gen.rng.randint(0, 50) for n in names}
+
+            states = self.system.step(self.tick, ext, event_spikes, active_users)
+
             timestamp = time.time()
             rec = {
                 't': i,
@@ -269,13 +322,150 @@ def save_json(path: str, records: List[Dict[str, Any]]):
     with open(path, 'w') as f:
         json.dump(records, f, indent=2, default=str)
 
+def save_sql_compatible_json(path: str, records: List[Dict[str, Any]], simulation_id: str = "sim_001"):
+    """Save records as SQL-compatible normalized JSON (separate tables).
+    
+    Creates three normalized tables:
+    - simulations: metadata about the run
+    - simulation_ticks: each tick as a separate row
+    - subsystem_metrics: each subsystem's metrics in that tick
+    """
+    now = time.time()
+    
+    # Extract metadata
+    first_tick = records[0] if records else {}
+    last_tick = records[-1] if records else {}
+    duration = (last_tick.get('t', 0) - first_tick.get('t', 0)) + 1
+    
+    # Table 1: simulations (metadata)
+    simulations = [{
+        'simulation_id': simulation_id,
+        'start_timestamp': first_tick.get('timestamp', now),
+        'end_timestamp': last_tick.get('timestamp', now),
+        'total_ticks': len(records),
+        'tick_interval_seconds': 1.0
+    }]
+    
+    # Table 2 & 3: ticks and metrics (normalized)
+    ticks = []
+    metrics = []
+    
+    for rec in records:
+        tick_id = f"{simulation_id}_t{rec['t']}"
+        ticks.append({
+            'tick_id': tick_id,
+            'simulation_id': simulation_id,
+            'tick_number': rec['t'],
+            'timestamp': rec['timestamp']
+        })
+        
+        # flatten subsystem states into metrics rows
+        for state in rec['states']:
+            for ext_name, ext_val in rec['external'].items():
+                if ext_name == state['name']:
+                    spike = rec['event_spikes'].get(ext_name, 0.0)
+                    metrics.append({
+                        'metric_id': f"{tick_id}_{state['name']}",
+                        'tick_id': tick_id,
+                        'simulation_id': simulation_id,
+                        'subsystem': state['name'],
+                        'tick_number': rec['t'],
+                        'timestamp': rec['timestamp'],
+                        'cpu_percent': state['cpu'],
+                        'ram_mb': state['ram'],
+                        'active_users': state.get('active_users', 0),
+                        'external_load': ext_val,
+                        'event_spike_percent': spike
+                    })
+                    break
+    
+    output = {
+        'schema': {
+            'simulations': ['simulation_id', 'start_timestamp', 'end_timestamp', 'total_ticks', 'tick_interval_seconds'],
+            'ticks': ['tick_id', 'simulation_id', 'tick_number', 'timestamp'],
+            'subsystem_metrics': ['metric_id', 'tick_id', 'simulation_id', 'subsystem', 'tick_number', 'timestamp', 'cpu_percent', 'ram_mb', 'active_users', 'external_load', 'event_spike_percent']
+        },
+        'data': {
+            'simulations': simulations,
+            'ticks': ticks,
+            'subsystem_metrics': metrics
+        }
+    }
+    
+    with open(path, 'w') as f:
+        json.dump(output, f, indent=2, default=str)
+
+def save_sql_compatible_xml(path: str, records: List[Dict[str, Any]], simulation_id: str = "sim_001"):
+    """Save records as SQL-compatible XML (nested structure for import).
+    
+    Creates XML with simulations > ticks > metrics hierarchy.
+    """
+    now = time.time()
+    first_tick = records[0] if records else {}
+    last_tick = records[-1] if records else {}
+    
+    root = ET.Element('simulation_data')
+    root.set('schema_version', '1.0')
+    
+    # Simulations element
+    sims_elem = ET.SubElement(root, 'simulations')
+    sim_elem = ET.SubElement(sims_elem, 'simulation')
+    sim_elem.set('simulation_id', simulation_id)
+    ET.SubElement(sim_elem, 'start_timestamp').text = str(first_tick.get('timestamp', now))
+    ET.SubElement(sim_elem, 'end_timestamp').text = str(last_tick.get('timestamp', now))
+    ET.SubElement(sim_elem, 'total_ticks').text = str(len(records))
+    ET.SubElement(sim_elem, 'tick_interval_seconds').text = '1.0'
+    
+    # Ticks and metrics
+    ticks_elem = ET.SubElement(root, 'ticks')
+    metrics_elem = ET.SubElement(root, 'subsystem_metrics')
+    
+    for rec in records:
+        tick_id = f"{simulation_id}_t{rec['t']}"
+        
+        # Tick element
+        tick_elem = ET.SubElement(ticks_elem, 'tick')
+        tick_elem.set('tick_id', tick_id)
+        ET.SubElement(tick_elem, 'simulation_id').text = simulation_id
+        ET.SubElement(tick_elem, 'tick_number').text = str(rec['t'])
+        ET.SubElement(tick_elem, 'timestamp').text = str(rec['timestamp'])
+        
+        # Metrics for each subsystem in this tick
+        for state in rec['states']:
+            for ext_name, ext_val in rec['external'].items():
+                if ext_name == state['name']:
+                    spike = rec['event_spikes'].get(ext_name, 0.0)
+                    metric = ET.SubElement(metrics_elem, 'metric')
+                    metric.set('metric_id', f"{tick_id}_{state['name']}")
+                    ET.SubElement(metric, 'tick_id').text = tick_id
+                    ET.SubElement(metric, 'simulation_id').text = simulation_id
+                    ET.SubElement(metric, 'subsystem').text = state['name']
+                    ET.SubElement(metric, 'tick_number').text = str(rec['t'])
+                    ET.SubElement(metric, 'timestamp').text = str(rec['timestamp'])
+                    ET.SubElement(metric, 'cpu_percent').text = str(state['cpu'])
+                    ET.SubElement(metric, 'ram_mb').text = str(state['ram'])
+                    ET.SubElement(metric, 'active_users').text = str(state.get('active_users', 0))
+                    ET.SubElement(metric, 'external_load').text = str(ext_val)
+                    ET.SubElement(metric, 'event_spike_percent').text = str(spike)
+                    break
+    
+    # Pretty print XML
+    xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent='  ')
+    # Remove extra blank lines
+    xml_str = '\n'.join([line for line in xml_str.split('\n') if line.strip()])
+    
+    with open(path, 'w') as f:
+        f.write(xml_str)
+
 def parse_args():
     p = argparse.ArgumentParser(description='Infrastructure simulator')
     p.add_argument('--duration', type=float, default=60.0, help='total simulation duration in seconds')
     p.add_argument('--tick', type=float, default=1.0, help='tick interval in seconds')
     p.add_argument('--print-every', type=int, default=5, help='print summary every N ticks (0 disable)')
-    p.add_argument('--out', type=str, default=None, help='path to save JSON output')
-    p.add_argument('--preset', choices=['high_cpu', 'low_cpu', 'high_ram', 'low_ram', 'default'], default='default')
+    p.add_argument('--out', type=str, default=None, help='path to save output (auto-detects .json or .xml)')
+    p.add_argument('--out-format', choices=['raw', 'sql-json', 'sql-xml', 'both'], default='sql-json', help='output format: raw (flat), sql-json (normalized), sql-xml (XML), both (JSON+XML)')
+    p.add_argument('--sim-id', type=str, default='sim_001', help='simulation ID for SQL output')
+    p.add_argument('--preset', choices=['high_cpu', 'low_cpu', 'high_ram', 'low_ram', 'high_users', 'low_users', 'default'], default='default')
     p.add_argument('--ram-mode', choices=['default','leak','proportional','cache'], default='default', help='RAM scaling mode for simulation')
     p.add_argument('--leak-rate', type=float, default=1.0, help='leak MB per second when --ram-mode=leak')
     p.add_argument('--realtime', action='store_true', help='sleep realtime between ticks')
@@ -293,13 +483,32 @@ if __name__ == '__main__':
     records = sim.run(print_every=(args.print_every if args.print_every > 0 else None), realtime=args.realtime, preset=(None if args.preset=='default' else args.preset))
 
     if args.out:
-        save_json(args.out, records)
-        print(f"Saved output to {args.out}")
+        # Determine format from extension or explicit format
+        out_base = args.out.replace('.json', '').replace('.xml', '')
+        
+        if args.out_format == 'raw':
+            save_json(args.out, records)
+            print(f"Saved raw JSON output to {args.out}")
+        elif args.out_format == 'sql-json':
+            out_json = out_base + '.json'
+            save_sql_compatible_json(out_json, records, args.sim_id)
+            print(f"Saved SQL-compatible JSON to {out_json}")
+        elif args.out_format == 'sql-xml':
+            out_xml = out_base + '.xml'
+            save_sql_compatible_xml(out_xml, records, args.sim_id)
+            print(f"Saved SQL-compatible XML to {out_xml}")
+        elif args.out_format == 'both':
+            out_json = out_base + '.json'
+            out_xml = out_base + '.xml'
+            save_sql_compatible_json(out_json, records, args.sim_id)
+            save_sql_compatible_xml(out_xml, records, args.sim_id)
+            print(f"Saved SQL-compatible JSON to {out_json}")
+            print(f"Saved SQL-compatible XML to {out_xml}")
     else:
         # print a short summary
         last = records[-1]
         print('\nFinal snapshot:')
         for s in last['states']:
-            print(f"  {s['name']}: cpu={s['cpu']}% ram={s['ram']}MB")
+            print(f"  {s['name']}: cpu={s['cpu']}% ram={s['ram']}MB active_users={s.get('active_users', 0)}")
 
     print('Done.')
