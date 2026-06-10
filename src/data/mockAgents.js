@@ -1,0 +1,88 @@
+const mockAgents = {
+  CI: [
+    {
+      name: 'Infrastructure Agent',
+      scope: 'Cloud infrastructure and network health',
+      status: 'Healthy',
+      latestFinding: 'All services responding within normal thresholds.',
+      lastChecked: '1 min ago',
+      confidenceScore: 98,
+    },
+    {
+      name: 'Memory Agent',
+      scope: 'Heap and container memory pressure',
+      status: 'Healthy',
+      latestFinding: 'Memory usage stable with normal buffer levels.',
+      lastChecked: '2 min ago',
+      confidenceScore: 94,
+    },
+    {
+      name: 'CPU Agent',
+      scope: 'CPU load and core utilization',
+      status: 'Healthy',
+      latestFinding: 'Average CPU load remains under 40%.',
+      lastChecked: '1 min ago',
+      confidenceScore: 96,
+    },
+    {
+      name: 'CI/CD Agent',
+      scope: 'Pipeline and merge health',
+      status: 'Warning',
+      latestFinding: 'Merge validation passed, but one pipeline check is slow.',
+      lastChecked: '3 min ago',
+      confidenceScore: 89,
+    },
+    {
+      name: 'API Agent',
+      scope: 'Public endpoint latency and availability',
+      status: 'Healthy',
+      latestFinding: 'API latency remains within acceptable service level.',
+      lastChecked: '1 min ago',
+      confidenceScore: 95,
+    },
+  ],
+  PROD: [
+    {
+      name: 'Infrastructure Agent',
+      scope: 'Cloud infrastructure and network health',
+      status: 'Degraded',
+      latestFinding: 'Infrastructure latency increased on several nodes.',
+      lastChecked: '30 sec ago',
+      confidenceScore: 87,
+    },
+    {
+      name: 'Memory Agent',
+      scope: 'Heap and container memory pressure',
+      status: 'Critical',
+      latestFinding: 'Memory usage crossed the critical threshold on app cluster.',
+      lastChecked: '15 sec ago',
+      confidenceScore: 92,
+    },
+    {
+      name: 'CPU Agent',
+      scope: 'CPU load and core utilization',
+      status: 'Warning',
+      latestFinding: 'CPU spikes are occurring under sustained load.',
+      lastChecked: '45 sec ago',
+      confidenceScore: 85,
+    },
+    {
+      name: 'CI/CD Agent',
+      scope: 'Pipeline and merge health',
+      status: 'Warning',
+      latestFinding: 'Production merge has delayed validation checks.',
+      lastChecked: '2 min ago',
+      confidenceScore: 84,
+    },
+    {
+      name: 'API Agent',
+      scope: 'Public endpoint latency and availability',
+      status: 'Degraded',
+      latestFinding: 'API error rate is elevated for one endpoint.',
+      lastChecked: '40 sec ago',
+      confidenceScore: 90,
+    },
+  ],
+};
+
+export default mockAgents;
