@@ -117,7 +117,7 @@ class LiveSimulation:
         
         if preset == 'high_cpu':
             for name, sub in self.subsystems.items():
-                sub.base_cpu = 80.0
+                sub.base_cpu = 50.0
                 sub.cpu_volatility = 5.0
                 sub.ram_mode = 'default'
             self.sustained_base_ext = {s: random.uniform(0.7, 0.9) for s in self.subsystems}
