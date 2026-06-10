@@ -5,8 +5,8 @@ function TopNav({ environment, environments, onEnvironmentChange, lastUpdated })
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-8">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">IHealth</p>
-          <h1 className="text-2xl font-semibold text-slate-900">IMonitor Dashboard</h1>
+          <p className="text-sm font-semibold tracking-[0.22em] text-sky-600">iNTERN</p>
+          <h1 className="text-2xl font-semibold text-slate-900">iMonitor Dashboard</h1>
         </div>
 
         <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">

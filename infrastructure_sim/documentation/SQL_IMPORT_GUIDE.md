@@ -17,6 +17,7 @@ The simulator supports three SQL-compatible export formats:
 - **CLI flag**: `--out-format sql-xml`
 - **Structure**: Hierarchical XML with schema version
 - **Best for**: ETL pipelines, XML-native databases
+- XML format has easily readable data to be displayed in excel for easy visualization. 
 
 ### 3. Raw Format
 - **File extension**: `.json`

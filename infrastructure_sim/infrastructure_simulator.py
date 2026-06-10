@@ -407,28 +407,27 @@ def save_sql_compatible_xml(path: str, records: List[Dict[str, Any]], simulation
     root = ET.Element('simulation_data')
     root.set('schema_version', '1.0')
     
-    # Simulations element
-    sims_elem = ET.SubElement(root, 'simulations')
-    sim_elem = ET.SubElement(sims_elem, 'simulation')
-    sim_elem.set('simulation_id', simulation_id)
-    ET.SubElement(sim_elem, 'start_timestamp').text = str(first_tick.get('timestamp', now))
-    ET.SubElement(sim_elem, 'end_timestamp').text = str(last_tick.get('timestamp', now))
-    ET.SubElement(sim_elem, 'total_ticks').text = str(len(records))
-    ET.SubElement(sim_elem, 'tick_interval_seconds').text = '1.0'
+    # # Simulations element
+    # sims_elem = ET.SubElement(root, 'simulations')
+    # sim_elem = ET.SubElement(sims_elem, 'simulation')
+    # sim_elem.set('simulation_id', simulation_id)
+    # ET.SubElement(sim_elem, 'start_timestamp').text = str(first_tick.get('timestamp', now))
+    # ET.SubElement(sim_elem, 'end_timestamp').text = str(last_tick.get('timestamp', now))
+    # ET.SubElement(sim_elem, 'total_ticks').text = str(len(records))
+    # ET.SubElement(sim_elem, 'tick_interval_seconds').text = '1.0'
     
     # Ticks and metrics
-    ticks_elem = ET.SubElement(root, 'ticks')
     metrics_elem = ET.SubElement(root, 'subsystem_metrics')
     
     for rec in records:
-        tick_id = f"{simulation_id}_t{rec['t']}"
+        # tick_id = f"{simulation_id}_t{rec['t']}"
         
-        # Tick element
-        tick_elem = ET.SubElement(ticks_elem, 'tick')
-        tick_elem.set('tick_id', tick_id)
-        ET.SubElement(tick_elem, 'simulation_id').text = simulation_id
-        ET.SubElement(tick_elem, 'tick_number').text = str(rec['t'])
-        ET.SubElement(tick_elem, 'timestamp').text = str(rec['timestamp'])
+        # # Tick element
+        # tick_elem = ET.SubElement(ticks_elem, 'tick')
+        # tick_elem.set('tick_id', tick_id)
+        # ET.SubElement(tick_elem, 'simulation_id').text = simulation_id
+        # ET.SubElement(tick_elem, 'tick_number').text = str(rec['t'])
+        # ET.SubElement(tick_elem, 'timestamp').text = str(rec['timestamp'])
         
         # Metrics for each subsystem in this tick
         for state in rec['states']:
@@ -436,12 +435,8 @@ def save_sql_compatible_xml(path: str, records: List[Dict[str, Any]], simulation
                 if ext_name == state['name']:
                     spike = rec['event_spikes'].get(ext_name, 0.0)
                     metric = ET.SubElement(metrics_elem, 'metric')
-                    metric.set('metric_id', f"{tick_id}_{state['name']}")
-                    ET.SubElement(metric, 'tick_id').text = tick_id
-                    ET.SubElement(metric, 'simulation_id').text = simulation_id
                     ET.SubElement(metric, 'subsystem').text = state['name']
                     ET.SubElement(metric, 'tick_number').text = str(rec['t'])
-                    ET.SubElement(metric, 'timestamp').text = str(rec['timestamp'])
                     ET.SubElement(metric, 'cpu_percent').text = str(state['cpu'])
                     ET.SubElement(metric, 'ram_mb').text = str(state['ram'])
                     ET.SubElement(metric, 'active_users').text = str(state.get('active_users', 0))

@@ -76,7 +76,7 @@ Three export formats are supported via `--out-format`:
    - Schema includes foreign keys and primary key relationships
    - Example: `python3 infrastructure_simulator.py --out metrics.json --out-format sql-json`
 
-2. **sql-xml**: Hierarchical XML with schema version info, suitable for ETL/import pipelines
+2. **sql-xml**: Hierarchical XML 
    - Example: `python3 infrastructure_simulator.py --out metrics.xml --out-format sql-xml`
 
 3. **raw**: Flat JSON array of tick records (original format)
