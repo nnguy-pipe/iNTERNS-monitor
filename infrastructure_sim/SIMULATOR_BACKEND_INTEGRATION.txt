@@ -1,0 +1,242 @@
+SIMULATOR-BACKEND INTEGRATION
+=============================
+
+The infrastructure simulator daemon is now fully integrated with the backend API.
+
+SETUP
+=====
+
+1. Start the simulator daemon (in a separate terminal):
+   cd /home/niconguy/iNTERNS-monitor/infrastructure_sim
+   python3 infrastructure_simulator_daemon.py --port 9999
+
+2. Start the backend API (existing):
+   cd /home/niconguy/iNTERNS-monitor
+   python3 -m src.api.main  # or your startup command
+
+BACKEND API ENDPOINTS
+=====================
+
+All new simulator endpoints are under /api/simulator/:
+
+✓ GET /api/simulator/health
+  → Check if simulator daemon is running
+  → Response: {status: "running"|"unavailable", simulator: {...}}
+
+✓ GET /api/simulator/metrics
+  → Get current tick metrics (latest)
+  → Response: {tick, timestamp, preset, subsystems: {...}}
+
+✓ GET /api/simulator/summary
+  → Get aggregated metrics (min/avg/max)
+  → Response: {preset, subsystems: {web: {cpu_avg, cpu_max, ...}, ...}}
+
+✓ POST /api/simulator/ingest?system_name=my-service&environment=ci
+  → Pull current metric from simulator and ingest as event
+  → Response: {event_id, status, preset}
+
+✓ POST /api/simulator/preset/{preset}
+  → Switch simulator to different preset
+  → Valid presets: default, high_cpu, low_cpu, high_ram, low_ram, high_users, low_users
+  → Response: {status: "ok", preset: "..."}
+
+✓ GET /api/simulator/export/json
+  → Export full metrics history as SQL-compatible JSON
+  → Response: {simulations: [...], ticks: [...], subsystem_metrics: [...]}
+
+✓ GET /api/simulator/export/xml
+  → Export full metrics history as SQL-compatible XML
+  → Response: {xml: "..."}
+
+
+USAGE EXAMPLES
+==============
+
+From Backend Code:
+──────────────────
+
+# Quick pull of current metric
+from src.simulator_bridge import pull_simulator_metric
+
+event = pull_simulator_metric("my-service", environment="ci")
+if event:
+    print(event)  # Ready to send to /api/events
+
+# Full client with advanced features
+from src.simulator_bridge import SimulatorClient
+
+client = SimulatorClient("http://localhost:9999")
+metrics = client.get_current_metrics()
+client.set_preset("high_cpu")
+export = client.export_json()
+
+# Event bridge for continuous ingestion
+from src.simulator_bridge import SimulatorEventBridge
+
+bridge = SimulatorEventBridge()
+event = bridge.pull_metric_event("my-service", "ci")
+
+# Or ingest all presets at once
+all_events = bridge.pull_all_preset_events("test-system")
+
+
+From Terminal (curl):
+─────────────────────
+
+# Check simulator health
+curl http://localhost:8000/api/simulator/health | jq
+
+# Get current metrics
+curl http://localhost:8000/api/simulator/metrics | jq
+
+# Get summary stats
+curl http://localhost:8000/api/simulator/summary | jq
+
+# Switch to high CPU preset
+curl -X POST http://localhost:8000/api/simulator/preset/high_cpu
+
+# Ingest metric as event
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=test&environment=ci" | jq
+
+# Export metrics for SQL
+curl http://localhost:8000/api/simulator/export/json > metrics.json
+curl http://localhost:8000/api/simulator/export/xml > metrics.xml
+
+
+WORKFLOW EXAMPLE: Testing Load Patterns
+========================================
+
+# Terminal 1: Start simulator daemon
+cd infrastructure_sim
+python3 infrastructure_simulator_daemon.py --port 9999
+
+# Terminal 2: Start backend
+python3 -m src.api.main
+
+# Terminal 3: Test via curl
+
+# Test 1: Get health
+curl http://localhost:8000/api/simulator/health
+
+# Test 2: Generate high CPU event and ingest
+curl -X POST http://localhost:8000/api/simulator/preset/high_cpu
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=api-service&environment=ci"
+
+# Test 3: Switch to high RAM and ingest
+curl -X POST http://localhost:8000/api/simulator/preset/high_ram
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=api-service&environment=ci"
+
+# Test 4: Get aggregated metrics
+curl http://localhost:8000/api/simulator/summary | jq
+
+# Test 5: Export for database import
+curl http://localhost:8000/api/simulator/export/json > export.json
+
+
+INTEGRATION WITH EVENT INGESTION
+=================================
+
+The simulator metrics are converted to backend event format automatically:
+
+Simulator metric:
+  {
+    "tick": 42,
+    "timestamp": 1781120842.95,
+    "preset": "high_cpu",
+    "subsystems": {"web": {"cpu": 78.5, "ram": 512.3, ...}, ...}
+  }
+
+↓ Converted to event ↓
+
+Backend event (posted to /api/events):
+  {
+    "source": "infrastructure_simulator",
+    "source_id": "sim_1781120842_42",
+    "event_type": "metric",
+    "timestamp": "2026-06-10T16:17:22Z",
+    "environment": "ci",
+    "system_name": "my-service",
+    "correlation_id": "my-service_ci",
+    "data": {
+      "preset": "high_cpu",
+      "tick": 42,
+      "uptime_seconds": 42.0,
+      "subsystems": {...},
+      "summary": {
+        "cpu_avg": 75.3,
+        "cpu_max": 82.1,
+        "ram_avg": 512.5,
+        "ram_total": 2050.0,
+        "active_users_total": 285
+      }
+    }
+  }
+
+This event is then normalized and analyzed by your existing backends services (ReasoningEngine, CorrelationEngine, etc.)
+
+
+MONITORING PATTERNS
+===================
+
+Pattern 1: One-off metric pull
+  POST /api/simulator/ingest?system_name=test&environment=ci
+  → Pulls current metric, ingests, returns event_id
+
+Pattern 2: Batch preset testing
+  - Change preset (POST /api/simulator/preset/high_cpu)
+  - Pull metric (GET /api/simulator/metrics)
+  - Ingest (POST /api/simulator/ingest)
+  - Repeat for all presets
+
+Pattern 3: Continuous monitoring (Python loop)
+  bridge = SimulatorEventBridge()
+  for i in range(100):
+      event = bridge.pull_metric_event("system", "ci")
+      ingest(event)  # via backend client
+      time.sleep(1)
+
+Pattern 4: Full export + bulk import (PostgreSQL)
+  curl /api/simulator/export/json > metrics.json
+  python3 import_postgres.py metrics.json
+
+
+TROUBLESHOOTING
+===============
+
+Q: "Simulator daemon not available"
+A: Make sure infrastructure_simulator_daemon.py is running on port 9999
+   python3 infrastructure_sim/infrastructure_simulator_daemon.py --port 9999
+
+Q: Backend cannot connect to simulator
+A: Check port 9999 is accessible
+   curl http://localhost:9999/health
+   (Should return {"status": "running", ...})
+
+Q: Want to use different port
+A: Start daemon with --port flag:
+   python3 infrastructure_simulator_daemon.py --port 8888
+   Then configure backend: SimulatorClient("http://localhost:8888")
+
+Q: Events ingested but metrics show "unknown"
+A: Wait a moment - first event always has no history yet
+   Send a few more metrics, aggregation improves with data
+
+Q: Need to export metrics to database
+A: Use /api/simulator/export/json endpoint:
+   curl http://localhost:8000/api/simulator/export/json > export.json
+   Then import with your SQL loader
+
+
+FILES
+=====
+
+Infrastructure Simulator Daemon:
+  /infrastructure_sim/infrastructure_simulator_daemon.py  (main service)
+  /infrastructure_sim/DAEMON_USAGE.txt                   (daemon commands)
+
+Backend Integration:
+  /src/simulator_bridge.py                               (client + bridge)
+  /src/api/routes.py                                     (new endpoints)
+
+This file:
+  /infrastructure_sim/SIMULATOR_BACKEND_INTEGRATION.txt

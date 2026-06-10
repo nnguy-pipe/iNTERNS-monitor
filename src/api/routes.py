@@ -339,6 +339,247 @@ def agents_check(db: Session = Depends(get_db)) -> Dict[str, Any]:
     return {"count": len(results), "agents": results}
 
 
+@router.get("/simulator/health", tags=["simulator"])
+def simulator_health() -> Dict[str, Any]:
+    """
+    Check infrastructure simulator daemon health.
+    
+    Returns:
+        - status: "running" or "unavailable"
+        - info: Current simulator state if running
+    """
+    try:
+        from src.simulator_bridge import get_simulator_client
+        client = get_simulator_client()
+        if not client:
+            return {
+                "status": "unavailable",
+                "message": "Simulator daemon not running. Start with: python3 infrastructure_simulator_daemon.py --port 9999",
+            }
+        
+        health = client.health_check()
+        return {
+            "status": "running",
+            "simulator": health,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
+
+@router.get("/simulator/metrics", tags=["simulator"])
+def get_simulator_metrics() -> Dict[str, Any]:
+    """
+    Get current infrastructure metrics from simulator.
+    
+    Returns:
+        Current tick metrics: CPU, RAM, active users per subsystem
+    """
+    try:
+        from src.simulator_bridge import get_simulator_client
+        client = get_simulator_client()
+        if not client:
+            raise Exception("Simulator daemon not available")
+        
+        metrics = client.get_current_metrics()
+        if not metrics:
+            raise Exception("Failed to retrieve metrics")
+        
+        return metrics
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Simulator unavailable: {str(e)}")
+
+
+@router.get("/simulator/summary", tags=["simulator"])
+def get_simulator_summary() -> Dict[str, Any]:
+    """
+    Get aggregated infrastructure metrics from simulator.
+    
+    Returns:
+        Summary statistics: min/avg/max per subsystem and metric type
+    """
+    try:
+        from src.simulator_bridge import get_simulator_client
+        client = get_simulator_client()
+        if not client:
+            raise Exception("Simulator daemon not available")
+        
+        summary = client.get_summary()
+        if not summary:
+            raise Exception("Failed to retrieve summary")
+        
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Simulator unavailable: {str(e)}")
+
+
+@router.post("/simulator/ingest", tags=["simulator"])
+def ingest_simulator_metrics(
+    system_name: str = Query(..., description="System name for metrics"),
+    environment: str = Query("ci", description="Environment (ci, staging, production)"),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Pull current metrics from simulator and ingest as event.
+    
+    This endpoint bridges the simulator daemon with the backend event ingestion pipeline.
+    Useful for testing and monitoring infrastructure patterns.
+    
+    Args:
+        system_name: Name of the system being monitored
+        environment: Environment context
+    
+    Returns:
+        Ingested event ID and status
+    """
+    try:
+        from src.simulator_bridge import SimulatorEventBridge
+        
+        bridge = SimulatorEventBridge()
+        event = bridge.pull_metric_event(system_name, environment)
+        
+        if not event:
+            raise Exception("Failed to pull metric from simulator")
+        
+        # Ingest the event through normal pipeline
+        is_valid, error = IngestionHarness.validate_event_payload(event)
+        if not is_valid:
+            raise ValueError(error)
+        
+        ingested_event = PersistenceService.create_ci_event(
+            db=db,
+            source=event.get("source"),
+            source_id=event.get("source_id"),
+            event_type=event.get("event_type"),
+            timestamp=datetime.fromisoformat(event.get("timestamp").replace('Z', '+00:00')),
+            environment=event.get("environment"),
+            data=event.get("data", {}),
+            system_name=event.get("system_name"),
+            correlation_id=event.get("correlation_id"),
+        )
+        
+        # Normalize
+        normalized_data = NormalizationPipeline.normalize(
+            event.get("data", {}),
+            event.get("event_type")
+        )
+        
+        if normalized_data:
+            PersistenceService.update_ci_event_normalization(
+                db=db,
+                event_id=ingested_event.id,
+                normalized_data=normalized_data,
+                status="normalized"
+            )
+        
+        # Audit
+        PersistenceService.log_audit_event(
+            db=db,
+            event_type="simulator_ingestion",
+            system_name=system_name,
+            environment=environment,
+            event_data={"event_id": ingested_event.id, "source": "infrastructure_simulator"},
+            related_event_id=ingested_event.id,
+        )
+        
+        return {
+            "status": "ingested",
+            "event_id": ingested_event.id,
+            "system_name": system_name,
+            "environment": environment,
+            "preset": event.get("data", {}).get("preset"),
+            "timestamp": ingested_event.timestamp.isoformat(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Simulator ingestion failed: {str(e)}")
+
+
+@router.post("/simulator/preset/{preset}", tags=["simulator"])
+def set_simulator_preset(
+    preset: str,
+) -> Dict[str, Any]:
+    """
+    Switch simulator to a different load pattern preset.
+    
+    Valid presets:
+        - default: Balanced baseline
+        - high_cpu: 70-90% sustained CPU
+        - low_cpu: 5-15% baseline
+        - high_ram: +0.5%/s memory growth (leak)
+        - low_ram: -0.2%/s memory decay
+        - high_users: 500-800 concurrent users
+        - low_users: 10-50 concurrent users
+    
+    Returns:
+        Updated preset status
+    """
+    try:
+        from src.simulator_bridge import get_simulator_client
+        client = get_simulator_client()
+        if not client:
+            raise Exception("Simulator daemon not available")
+        
+        result = client.set_preset(preset)
+        if not result:
+            raise Exception(f"Failed to set preset to {preset}")
+        
+        return {
+            "status": "ok",
+            "preset": preset,
+            "message": f"Simulator switched to {preset} preset",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preset change failed: {str(e)}")
+
+
+@router.get("/simulator/export/json", tags=["simulator"])
+def export_simulator_json() -> Dict[str, Any]:
+    """
+    Export full simulator metrics history as SQL-compatible JSON.
+    
+    Returns:
+        3-table normalized schema: simulations, ticks, subsystem_metrics
+    """
+    try:
+        from src.simulator_bridge import get_simulator_client
+        client = get_simulator_client()
+        if not client:
+            raise Exception("Simulator daemon not available")
+        
+        data = client.export_json()
+        if not data:
+            raise Exception("Failed to export JSON")
+        
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Export failed: {str(e)}")
+
+
+@router.get("/simulator/export/xml", tags=["simulator"])
+def export_simulator_xml() -> Dict[str, Any]:
+    """
+    Export full simulator metrics history as SQL-compatible XML.
+    
+    Returns:
+        XML string (as JSON-wrapped string for API compatibility)
+    """
+    try:
+        from src.simulator_bridge import get_simulator_client
+        client = get_simulator_client()
+        if not client:
+            raise Exception("Simulator daemon not available")
+        
+        data = client.export_xml()
+        if not data:
+            raise Exception("Failed to export XML")
+        
+        return {"xml": data}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Export failed: {str(e)}")
+
+
 @router.get("/hooks/report-api", tags=["hooks"])
 def get_report_hook_contract() -> Dict[str, Any]:
     """
@@ -374,6 +615,25 @@ def get_report_hook_contract() -> Dict[str, Any]:
                 "path": "/ci/evaluate",
                 "description": "CI deployment evaluation",
                 "response": {"verdict": "pass|warn|fail", "rationale": "string"},
+            },
+            {
+                "method": "GET",
+                "path": "/simulator/metrics",
+                "description": "Get current infrastructure simulator metrics",
+                "response": {"subsystems": "object", "preset": "string"},
+            },
+            {
+                "method": "POST",
+                "path": "/simulator/ingest",
+                "description": "Pull simulator metrics and ingest as event",
+                "query_params": {"system_name": "string", "environment": "string"},
+                "response": {"event_id": "string", "status": "string"},
+            },
+            {
+                "method": "POST",
+                "path": "/simulator/preset/{preset}",
+                "description": "Switch simulator preset",
+                "response": {"status": "string", "preset": "string"},
             },
         ],
         "backend_version": "0.1.0",
