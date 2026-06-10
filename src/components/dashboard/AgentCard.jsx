@@ -2,7 +2,7 @@ import StatusBadge from '../ui/StatusBadge.jsx';
 
 function AgentCard({ name, scope, status, latestFinding, lastChecked }) {
   return (
-    <article className="h-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <article className="h-full rounded-lg border border-slate-200 bg-white p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-xl font-semibold text-slate-900">{name}</h3>

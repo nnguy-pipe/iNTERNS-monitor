@@ -1,132 +1,110 @@
 # Feature Specification: IMonitor Dashboard
 
-**Feature Branch**: `001-imonitor-dashboard`
+**Feature Directory**: `specs/001-imonitor-dashboard`
+
+**Version**: 1.1.0
 
 **Created**: 2026-06-10
 
-**Status**: Draft
+**Status**: Review-ready
 
-**Input**: User description: "Build the frontend for IMonitor, an intelligent live monitoring dashboard for life insurance software systems."
+**Summary**: Polish and refine the IMonitor frontend so it reads and behaves like a professional enterprise monitoring product. Preserve existing functionality and mock-data-driven CI/PROD toggle, but tighten visual hierarchy, spacing, colors, and UX copy to feel simple, credible, and demo-ready.
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & UX Flows
 
-### User Story 1 - Monitor system health at a glance (Priority: P1)
+The goal is to refine existing flows; we do not add major new features. The UX is laptop-first (desktop baseline ~1200px) with responsive adjustments down to tablet and phone widths.
 
-An engineer needs to evaluate the current health of CI and production systems quickly, using a polished dashboard that surfaces overall status, live metrics, active alerts, and agent findings.
+### P1 — At-a-glance health overview (Primary)
 
-**Why this priority**: This is the core demo experience for IMonitor and delivers the highest value to the engineer user by making system health immediately visible.
+Actor: Site reliability engineer (SRE) or demo audience.
 
-**Independent Test**: Load the dashboard and verify that the top navigation, health summary, agent cards, live metrics, alerts feed, report preview, and skills registry preview are all visible and updated with mock data.
+Flow: User opens dashboard → top nav shows product name, CI/PROD toggle, live status and timestamp → health summary is prominent (large score, colored status badge) → alerts feed and metrics provide immediate context.
 
-**Acceptance Scenarios**:
+Acceptance:
+- Health summary is visually prominent on page load and readable within 3–5 seconds.
+- Status badge uses color semantics: `Healthy`=green, `Degraded`=amber, `Critical`=red.
+- Health score is large, with microcopy explaining main contributors (e.g., "Degraded due to memory and API issues").
 
-1. **Given** the user opens the dashboard, **When** the dashboard loads, **Then** the top navigation shows IHealth, the environment toggle, live status indicator, and last updated timestamp.
-2. **Given** the dashboard is visible, **When** the mock data is displayed, **Then** the health summary shows overall status, health score, active alerts count, selected environment, and a plain-English summary.
+Success test: Open page at 1366×768 (laptop), confirm top-left quadrant contains health score and badge, and the right column contains report + skills with consistent spacing.
 
----
+### P2 — Alert investigation (High priority)
 
-### User Story 2 - Inspect active alerts and alert details (Priority: P2)
+Flow: User scans alerts feed → clicks an alert → details drawer opens (focus trapped) showing severity, resource, agent reasoning, suggested actions, confidence, and quick actions (Acknowledge, View Runbook).
 
-An engineer needs to review active alerts sorted by severity and open details for any alert to understand the impacted resource, suggested remediation, and agent reasoning.
+Acceptance:
+- Drawer opens from the right and overlays content with a dim backdrop.
+- Drawer includes: title, time, severity pill (colored), affected resource, source agent, timeline (list of recent events), agent reasoning, suggested remediation steps, related skill link, confidence percentage, and action buttons (`Acknowledge`, `View Runbook`).
+- Keyboard: `Esc` closes drawer, `Tab` cycles focus within drawer, initial focus lands on the primary action button.
 
-**Why this priority**: Alert investigation is essential for operational monitoring and showcases the demo’s interactive value.
+Success test: Click any alert and verify drawer content, keyboard close, and focus trap behavior.
 
-**Independent Test**: Click an alert in the alerts feed and confirm that an alert details drawer opens with title, severity, affected resource, reasoning, suggested actions, related skill, confidence score, and status.
+### P3 — Metrics & trend context (Medium)
 
-**Acceptance Scenarios**:
+Flow: User inspects CPU/memory charts and metric cards which update every few seconds. Cards reflect threshold colors (green/yellow/red) based on configured thresholds and include small trend microcopy.
 
-1. **Given** active alerts are displayed, **When** the user clicks an alert, **Then** a side drawer opens showing the alert details and suggested next steps.
-2. **Given** the alert details drawer is open, **When** the user reviews the information, **Then** they can see the associated agent and the alert confidence score.
+Acceptance:
+- Line charts render with clear axes and muted gridlines; metric cards show last value, unit, and a short trend label.
+- Cards change their accent/badge color when values cross warning/critical thresholds.
 
----
+Success test: Simulate PROD state and observe memory rising; metric cards and health score update and a critical memory alert surfaces.
 
-### User Story 3 - Review live system metrics and trend behavior (Priority: P3)
+### P4 — Report and skills preview (Medium)
 
-An engineer wants to see simulated live metrics for CPU usage, memory usage, API latency, and error rate so they can understand system trends and anticipate potential issues.
+Flow: Report preview provides a concise executive view (score, summary, areas of concern, suggested improvements). Skills registry highlights operational playbooks and is visually distinct from report cards.
 
-**Why this priority**: Live metrics support the status summary and provide context for alerts, making the demo feel responsive and realistic.
+Acceptance:
+- Report preview is larger than individual cards and placed left of the skills registry on laptop layouts (8/4 column split).
+- Skills cards are vertically stacked on laptop widths to avoid horizontal squashing; on very wide screens they may present multiple columns.
 
-**Independent Test**: Observe the metrics section for simulated updates every few seconds and confirm that CPU, memory, API latency, and error rate values change over time.
-
-**Acceptance Scenarios**:
-
-1. **Given** the dashboard is active, **When** the live simulation runs, **Then** CPU and memory metrics update periodically and may rise toward a critical threshold.
-2. **Given** memory usage crosses a threshold, **When** the simulated state changes, **Then** a critical memory alert appears and the health score updates accordingly.
-
----
-
-### User Story 4 - Preview recent system health report and skills registry (Priority: P3)
-
-An engineer wants a quick summary of the latest merge or production health report and a preview of agent-discovered operational skills.
-
-**Why this priority**: This completes the demo experience by showing both historical reporting and intelligence driven by monitoring agents.
-
-**Independent Test**: Verify the report preview card displays a health score, result, summary, concerns, and suggested improvements, and confirm the skills registry preview lists discovered skills.
-
-**Acceptance Scenarios**:
-
-1. **Given** the report preview is visible, **When** the user scans the card, **Then** they see the latest health score, result, summary, areas of concern, and suggested improvements.
-2. **Given** the skills registry preview is visible, **When** the user reads the card, **Then** they see operational skills like Memory Leak Detection, High CPU Usage Investigation, CI Health Gate Review, and New Relic Metric Interpretation.
-
----
+Success test: On laptop width, verify report card width and skills registry alignment match the design baseline and have consistent padding.
 
 ### Edge Cases
 
-- If the simulated live feed pauses or fails, the dashboard should continue showing the last known values and display a subtle warning that live updates are paused.
-- If the environment toggle changes, the dashboard should update the status indicators, health summary, and alerts feed to match the selected CI or PROD context.
-- If no active alerts remain, the alerts feed should show a friendly message such as "No active issues" and the health summary should reflect a healthy state.
-- If the user opens an alert detail and then changes the environment, the drawer should either preserve the selected alert context or close gracefully with a message.
+- Live feed paused: show a subtle amber banner and continue rendering last values.
+- Environment change while drawer open: drawer remains open only if the selected alert exists in the new environment; otherwise the drawer closes with an explanatory toast.
+- No alerts: show a friendly empty state with a brief explanation and CTA to view the latest report.
+
 
 ## Requirements *(mandatory)*
 
-### Functional Requirements
+### Functional Requirements (refined)
 
-- **FR-001**: The dashboard MUST display a top navigation bar with the IHealth product name, sections for Dashboard, Reports, and Skills Registry, a CI / PROD environment toggle, a live status indicator, and a last updated timestamp.
-- **FR-002**: The dashboard MUST show a health summary that includes overall system status (Healthy, Degraded, or Critical), a health score from 0 to 100, the number of active alerts, the selected environment, and a short plain-English summary.
-- **FR-003**: The dashboard MUST show agent status cards for monitored resources, including name, monitoring scope, status, latest finding, and last checked time.
-- **FR-004**: The dashboard MUST show live metrics for CPU usage, memory usage, API latency, and error rate, with CPU and memory displayed using line charts or clear metric cards.
-- **FR-005**: The dashboard MUST display an alerts feed sorted by severity, with each alert including severity, title, environment, source agent, affected resource, timestamp, and a short summary.
-- **FR-006**: When a user clicks an alert, the dashboard MUST open an alert details drawer showing alert title, severity, affected resource, agent reasoning, suggested actions, related skill, confidence score, and status.
-- **FR-007**: The dashboard MUST display a report preview card showing the latest merge or production health report with health score, result, summary, areas of concern, and suggested improvements.
-- **FR-008**: The dashboard MUST show a skills registry preview with operational skills discovered by agents.
-- **FR-009**: The dashboard MUST use an enterprise theme with primary blue, white cards, light gray background, green/yellow/red status colors, rounded cards, subtle shadows, and clean spacing.
-- **FR-010**: The dashboard MUST simulate live monitoring by updating metrics every few seconds, allowing CPU and memory to rise, showing a critical memory alert when memory crosses a threshold, and updating the health score based on active alerts.
-- **FR-011**: The dashboard MUST avoid backend integrations and complex routing, using mock data for the demo.
-- **FR-012**: The frontend implementation MUST use React, Node.js, Tailwind CSS, and Recharts.
-- **FR-013**: Navigation links in the top nav MAY scroll to in-page sections for Dashboard, Reports, and Skills Registry instead of using full route transitions.
-- **FR-014**: The CI / PROD toggle MUST switch the dashboard between two mocked data states; CI should present a mostly healthy scenario with a merge warning, and PROD should present a degraded or critical scenario.
-- **FR-015**: The dashboard MUST use accessible labels, readable headings, and enterprise-friendly UI text.
+- **FR-001**: The dashboard MUST display a top navigation bar with the product name, three in-page sections (Dashboard, Reports, Skills), a CI/PROD environment toggle, a live status indicator, and a last-updated timestamp.
+- **FR-002**: The health summary MUST be visually prominent (large numeric score and an accessible status badge) and include the primary contributors to the current score in short plain-English copy.
+- **FR-003**: Agent cards MUST display `name`, `scope`, `status` (with color badge), `latestFinding`, and `lastChecked`. Cards should be equal-height within a responsive grid.
+- **FR-004**: Metrics panel MUST include line charts and metric cards for CPU, memory, API latency, and error rate. Metric cards MUST use threshold-based color accents and short trend copy.
+- **FR-005**: Alerts feed MUST be severity-sorted, show clear severity pills (color-coded), and visually emphasize critical alerts (left accent, stronger shadow).
+- **FR-006**: Alert details drawer MUST present: title, timestamp, severity pill, affected resource, source agent, short timeline of events, agent reasoning, suggested actions (bulleted), related skill link, confidence score, and primary actions (`Acknowledge`, `View Runbook`).
+- **FR-007**: Drawer accessibility: focus trap when open, `Esc` closes, initial focus on the primary action, and all interactive elements keyboard navigable.
+- **FR-008**: The dashboard MUST maintain a laptop-first 8/4 column layout for Report/Skills at ~1200px and collapse cleanly to single-column on small screens.
+- **FR-009**: Styling MUST follow the iPipeline-inspired theme: primary blue accents, white cards, light-gray background, and color semantics (green/amber/red) for health indicators.
+- **FR-010**: The app MUST remain frontend-only using mock datasets for CI and PROD and simulate live metric updates on a timed interval.
 
-### Key Entities *(include if feature involves data)*
+### Key Entities (refined)
 
-- **DashboardView**: Represents the main monitoring experience, including environment selection, summary widgets, agent cards, live metrics, alerts feed, report preview, and skills registry.
-- **AgentStatus**: Represents a monitoring agent with attributes: `name`, `scope`, `status`, `latestFinding`, `lastChecked`, and `confidenceScore`.
-- **Alert**: Represents an active issue with attributes: `severity`, `title`, `environment`, `sourceAgent`, `affectedResource`, `timestamp`, `summary`, `reasoning`, `suggestedActions`, `relatedSkill`, and `status`.
-- **LiveMetric**: Represents simulated data for `cpuUsage`, `memoryUsage`, `apiLatency`, and `errorRate`, including trends over time.
-- **ReportPreview**: Represents the latest health report with `healthScore`, `result`, `summary`, `areasOfConcern`, and `suggestedImprovements`.
-- **SkillPreview**: Represents an operational skill with `name`, `description`, and `category`.
+- `AgentStatus`: `{ name, scope, status, latestFinding, lastChecked, confidenceScore }`
+- `Alert`: `{ id, severity, title, environment, sourceAgent, affectedResource, timestamp, summary, reasoning, suggestedActions, relatedSkill, status, acknowledged }`
+- `LiveMetricSeries`: `{ cpuUsage: number[], memoryUsage: number[], apiLatency: number[], errorRate: number[] }`
+- `ReportPreview`: `{ healthScore, result, summary, areasOfConcern: string[], suggestedImprovements: string[] }`
+- `SkillPreview`: `{ name, description, category, relatedAlerts: string[] }`
+
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: A user can identify overall system health and the selected environment within 5 seconds of opening the dashboard.
-- **SC-002**: The dashboard updates metrics at least once every 5 seconds and reflects changing CPU, memory, API latency, or error rate values.
-- **SC-003**: At least one critical memory alert appears automatically when simulated memory usage crosses the threshold during the demo.
-- **SC-004**: The alerts feed is sortable by severity and shows at least 3 active alerts with complete details on the dashboard.
-- **SC-005**: The alert details drawer displays all required fields and is accessible by clicking any active alert.
-- **SC-006**: The report preview and skills registry preview are visible on the dashboard and include the required summary and skill names.
+- **SC-001**: On laptop width (≥1200px), a user identifies overall system health and the selected environment within 5 seconds of opening the dashboard.
+- **SC-002**: Metrics update on a regular interval (configurable, default ≤5s) and metric cards reflect real-time-like changes.
+- **SC-003**: When simulated memory crosses the critical threshold in PROD, a critical alert is created, the alerts feed highlights it, and the health score adjusts appropriately.
+- **SC-004**: Alerts feed presents at least 3 alerts (across environments) in the demo data set with complete details.
+- **SC-005**: The alert details drawer presents all required fields, supports keyboard interactions, and the primary actions are usable by keyboard and mouse.
+- **SC-006**: Report preview and skills registry are visible and read comfortably without horizontal overflow on the laptop baseline.
+
 
 ## Assumptions
 
-- The demo is a frontend-only experience with mocked live data; no backend API or authentication is implemented.
-- The initial environment state and all dashboard data are predefined by the demo and may switch between CI and PROD without real backend context.
-- The dashboard is designed as a polished hackathon demo rather than a production-grade monitoring product.
-- The MVP is mostly single-page with sections for Dashboard, Reports, and Skills Registry.
-- Navigation links can scroll to sections instead of using full routing.
-- The CI / PROD toggle switches between two mocked data states.
-- The CI scenario is mostly healthy with a merge warning, and the PROD scenario demonstrates degraded or critical health.
-- The app is implemented using React, Node.js, Tailwind CSS, and Recharts.
-- Accessibility and readable labels are required throughout the UI.
-- Real-time data is simulated in the browser, with metric updates every few seconds and a predictable threshold-based alert behavior.
-- Complex routing, deep navigation, and user management are out of scope for this frontend demo.
+- Demo remains frontend-only with all data mocked in `src/data/` and no backend integrations.
+- The laptop-first layout (≥1200px) is the primary design target; tablet/phone use is supported via responsive collapse rules.
+- Threshold values for warning/critical are configurable constants used by metric cards and alert generation.
+- Accessibility (ARIA roles, keyboard focus management) is implemented as part of polishing; the app remains a demo, not a fully certified accessibility product.
+- Implementation stack: React + Vite (JavaScript), Tailwind CSS, Recharts. No TypeScript.

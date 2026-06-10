@@ -1,15 +1,15 @@
 function SeverityPill({ level }) {
-  const colorClass =
+  const textClass =
     level === 'Critical'
-      ? 'bg-red-100 text-red-800'
+      ? 'text-red-700'
       : level === 'High'
-      ? 'bg-amber-100 text-amber-800'
+      ? 'text-amber-700'
       : level === 'Low'
-      ? 'bg-emerald-100 text-emerald-800'
-      : 'bg-slate-100 text-slate-800';
+      ? 'text-emerald-700'
+      : 'text-slate-700';
 
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center rounded-md px-2 py-1 text-sm font-medium border border-slate-300 ${textClass}`}>
       {level}
     </span>
   );

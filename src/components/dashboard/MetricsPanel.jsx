@@ -46,7 +46,7 @@ function MetricsPanel({ environment }) {
   const memoryData = useMemo(() => buildSeries(metrics.memoryUsage), [metrics.memoryUsage]);
 
   return (
-    <section id="metrics" className="space-y-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+     <section id="metrics" className="space-y-6 rounded-xl bg-white p-8 border border-slate-200">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Live metrics</p>
@@ -56,7 +56,7 @@ function MetricsPanel({ environment }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-3xl bg-slate-50 p-6">
+        <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${metrics.cpuUsage[metrics.cpuUsage.length - 1] > 80 ? 'border-l-4 border-l-amber-600' : ''}`}>
           <p className="text-sm uppercase tracking-[0.18em] text-slate-500">CPU Usage</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -71,7 +71,7 @@ function MetricsPanel({ environment }) {
           </div>
         </div>
 
-        <div className="rounded-3xl bg-slate-50 p-6">
+        <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${metrics.memoryUsage[metrics.memoryUsage.length - 1] > 90 ? 'border-l-4 border-l-red-600' : ''}`}>
           <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Memory Usage</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -88,18 +88,36 @@ function MetricsPanel({ environment }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <MetricCard
-          label="API latency"
-          value={metrics.apiLatency[metrics.apiLatency.length - 1]}
-          unit="ms"
-          trend={`Trending ${metrics.apiLatency[metrics.apiLatency.length - 1] > 200 ? 'higher' : 'steady'}`}
-        />
-        <MetricCard
-          label="Error rate"
-          value={metrics.errorRate[metrics.errorRate.length - 1]}
-          unit="%"
-          trend={`Trending ${metrics.errorRate[metrics.errorRate.length - 1] > 2 ? 'up' : 'stable'}`}
-        />
+        {
+          (() => {
+            const lastLatency = metrics.apiLatency[metrics.apiLatency.length - 1];
+            const latencyAccent = lastLatency > 300 ? 'critical' : lastLatency > 250 ? 'warning' : 'normal';
+            return (
+              <MetricCard
+                label="API latency"
+                value={lastLatency}
+                unit="ms"
+                trend={`Trending ${lastLatency > 200 ? 'higher' : 'steady'}`}
+                accent={latencyAccent}
+              />
+            );
+          })()
+        }
+        {
+          (() => {
+            const lastError = metrics.errorRate[metrics.errorRate.length - 1];
+            const errorAccent = lastError > 3 ? 'critical' : lastError > 2 ? 'warning' : 'normal';
+            return (
+              <MetricCard
+                label="Error rate"
+                value={lastError}
+                unit="%"
+                trend={`Trending ${lastError > 2 ? 'up' : 'stable'}`}
+                accent={errorAccent}
+              />
+            );
+          })()
+        }
       </div>
     </section>
   );

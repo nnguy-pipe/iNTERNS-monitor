@@ -7,7 +7,7 @@ import MetricsPanel from './components/dashboard/MetricsPanel.jsx';
 import AlertsFeed from './components/dashboard/AlertsFeed.jsx';
 import AlertDetailsDrawer from './components/dashboard/AlertDetailsDrawer.jsx';
 import ReportPreview from './components/dashboard/ReportPreview.jsx';
-import SkillsRegistry from './components/skills/SkillsRegistry.jsx';
+import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockAgents from './data/mockAgents.js';
 import mockAlerts from './data/mockAlerts.js';
 import mockReports from './data/mockReports.js';
@@ -16,7 +16,7 @@ import mockSkills from './data/mockSkills.js';
 const environments = ['CI', 'PROD'];
 
 function App() {
-  const [environment, setEnvironment] = useState('CI');
+  const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
 
   useEffect(() => {
@@ -33,12 +33,28 @@ function App() {
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
 
-  const healthStatus = environment === 'PROD' ? 'Degraded' : 'Healthy';
-  const healthScore = environment === 'PROD' ? 64 : 89;
-  const summary =
-    environment === 'PROD'
-      ? 'Production environment is degraded with a critical memory event and elevated API error rate.'
-      : 'CI environment is mostly healthy with a merge validation warning and stable service performance.';
+  useEffect(() => {
+    // Auto-open the critical alert in PROD to guide the demo story
+    if (environment === 'PROD') {
+      const critical = (mockAlerts.PROD || []).find((a) => a.severity === 'Critical');
+      if (critical) setSelectedAlert(critical);
+    } else {
+      setSelectedAlert(null);
+    }
+  }, [environment]);
+
+  // Derive health status from agents/alerts for demo storytelling
+  const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
+  const hasHighAlert = activeAlerts.some((a) => a.severity === 'High');
+  const hasCriticalAgent = currentAgents.some((ag) => ag.status === 'Critical');
+
+  let healthStatus = 'Healthy';
+  if (hasCriticalAlert || hasCriticalAgent) healthStatus = 'Critical';
+  else if (hasHighAlert || currentAgents.some((ag) => ag.status === 'Degraded' || ag.status === 'Warning'))
+    healthStatus = 'Degraded';
+
+  const healthScore = report?.healthScore ?? (environment === 'PROD' ? 64 : 89);
+  const summary = report?.summary ?? '';
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -86,9 +102,13 @@ function App() {
 
           <AlertsFeed alerts={activeAlerts} onSelectAlert={setSelectedAlert} />
 
-          <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <ReportPreview report={report} />
-            <SkillsRegistry skills={skills} />
+          <section className="grid gap-6 lg:grid-cols-12 items-start">
+            <div className="lg:col-span-8">
+              <ReportPreview report={report} />
+            </div>
+            <div className="lg:col-span-4">
+              <RecommendedNextSteps skills={skills} />
+            </div>
           </section>
 
           <MetricsPanel environment={environment} />

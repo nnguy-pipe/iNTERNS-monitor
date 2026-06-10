@@ -1,13 +1,13 @@
 function StatusBadge({ status }) {
-  const colorClass =
+  const borderClass =
     status === 'Healthy'
-      ? 'bg-emerald-100 text-emerald-800'
+      ? 'border-l-2 border-emerald-600 text-emerald-700'
       : status === 'Degraded'
-      ? 'bg-amber-100 text-amber-800'
-      : 'bg-red-100 text-red-800';
+      ? 'border-l-2 border-amber-600 text-amber-700'
+      : 'border-l-2 border-red-600 text-red-700';
 
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-2 pl-2 text-sm font-semibold ${borderClass}`}>
       {status}
     </span>
   );

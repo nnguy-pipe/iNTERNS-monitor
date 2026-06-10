@@ -9,7 +9,7 @@ const mockReports = {
   PROD: {
     healthScore: 64,
     result: 'Degraded due to memory and API issues',
-    summary: 'Production health is degraded with a critical memory alert and rising API error rate.',
+    summary: 'Production health is degraded following the latest deployment which introduced increased memory pressure; a critical memory alert is active.',
     areasOfConcern: ['Critical memory threshold breach', 'Elevated API error rates', 'Infrastructure latency degradation'],
     suggestedImprovements: ['Evict cache and restart affected services', 'Investigate backend timeout sources', 'Review network latency patterns'],
   },
