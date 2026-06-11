@@ -19,6 +19,37 @@ function App() {
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
 
+  //from API
+  const [apiHealth, setApiHealth] = useState(null);
+  const [apiMetrics, setApiMetrics] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [subsystems, setSubsystems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // fetch
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+
+      const [healthRes, metricsRes] = await Promise.all([
+        // update to not be hardcoded, but for demo purposes this is fine
+        fetch("http://localhost:8000/api/simulator/health").then(r => r.json()),
+        fetch("http://localhost:8000/api/simulator/metrics").then(r => r.json())
+      ]);
+
+      setHealth(healthRes);
+      setApiMetrics(metricsRes);
+      // Convert subsystems object → array
+      const subsystemAgents = Object.entries(metricsRes.subsystems).map(
+        ([name, stats]) => ({ name, ...stats })
+      );
+
+      setSubsystems(subsystemAgents);
+      setLoading(false);
+    }
+
+    loadData();
+  }, [environment]);
   useEffect(() => {
     const timer = setInterval(() => {
       setUpdatedAt(new Date());
@@ -33,15 +64,15 @@ function App() {
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
 
-  useEffect(() => {
-    // Auto-open the critical alert in PROD to guide the demo story
-    if (environment === 'PROD') {
-      const critical = (mockAlerts.PROD || []).find((a) => a.severity === 'Critical');
-      if (critical) setSelectedAlert(critical);
-    } else {
-      setSelectedAlert(null);
-    }
-  }, [environment]);
+  // useEffect(() => {
+  //   // Auto-open the critical alert in PROD to guide the demo story
+  //   if (environment === 'PROD') {
+  //     const critical = (mockAlerts.PROD || []).find((a) => a.severity === 'Critical');
+  //     if (critical) setSelectedAlert(critical);
+  //   } else {
+  //     setSelectedAlert(null);
+  //   }
+  // }, [environment]);
 
   // Derive health status from agents/alerts for demo storytelling
   const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
@@ -82,7 +113,7 @@ function App() {
               </div>
               <p className="text-sm text-slate-500">Current environment: {environment}</p>
             </div>
-            <AgentGrid agents={currentAgents} />
+            <AgentGrid agents={subsystems} />
           </section>
 
           <AlertsFeed alerts={activeAlerts} onSelectAlert={setSelectedAlert} />
