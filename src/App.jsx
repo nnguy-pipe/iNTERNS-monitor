@@ -8,7 +8,6 @@ import AlertsFeed from './components/dashboard/AlertsFeed.jsx';
 import AlertDetailsDrawer from './components/dashboard/AlertDetailsDrawer.jsx';
 import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
-import mockAgents from './data/mockAgents.js';
 import mockAlerts from './data/mockAlerts.js';
 import mockReports from './data/mockReports.js';
 import mockSkills from './data/mockSkills.js';
@@ -26,9 +25,9 @@ function App() {
   const [subsystems, setSubsystems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // fetch
-  useEffect(() => {
-    async function loadData() {
+
+  // fetch/ load data function
+  async function loadData() {
       setLoading(true);
 
       const [healthRes, metricsRes] = await Promise.all([
@@ -46,24 +45,26 @@ function App() {
 
       setSubsystems(subsystemAgents);
       setLoading(false);
-    }
-
+  }
+  useEffect(() => {
     loadData();
   }, [environment]);
+
   useEffect(() => {
     const timer = setInterval(() => {
+      loadData();
       setUpdatedAt(new Date());
-    }, 10000);
+    }, 5000); // Poll every 5 seconds
 
     return () => clearInterval(timer);
   }, []);
 
   const activeAlerts = mockAlerts[environment] || [];
-  const currentAgents = mockAgents[environment] || [];
+  const currentAgents = subsystems[environment] || [];
   const report = mockReports[environment];
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
-
+  // commented out for testing nico
   // useEffect(() => {
   //   // Auto-open the critical alert in PROD to guide the demo story
   //   if (environment === 'PROD') {
