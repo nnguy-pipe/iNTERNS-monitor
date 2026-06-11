@@ -62,8 +62,13 @@ class InfrastructureAgent(BaseAgent):
         return {"status": status, "latest_finding": finding, "last_checked": ts}
 
 
+# Max simulated RAM capacity: 2× sum of default base RAM values per subsystem
+# web=512, app=256, db=1024, cache=512 → base=2304 MB → capacity=4608 MB
+_SIM_MAX_RAM_MB = 4608.0
+
+
 class MemoryAgent(BaseAgent):
-    """Checks system memory usage; works in containers and hosts."""
+    """Checks memory usage. Prefers infrastructure simulator daemon; falls back to host /proc/meminfo."""
 
     def _read_meminfo(self) -> Optional[Dict[str, int]]:
         try:
@@ -82,6 +87,34 @@ class MemoryAgent(BaseAgent):
 
     def check(self, db) -> Dict[str, Any]:
         ts = datetime.utcnow().isoformat()
+
+        # --- Primary: simulator daemon ---
+        try:
+            from src.simulator_bridge import get_simulator_client
+            client = get_simulator_client()
+            if client:
+                metrics = client.get_current_metrics()
+                if metrics and "subsystems" in metrics:
+                    rams = {k: v["ram"] for k, v in metrics["subsystems"].items()}
+                    total_ram = sum(rams.values())
+                    ram_pct = round(min(100.0, (total_ram / _SIM_MAX_RAM_MB) * 100), 1)
+                    detail = ", ".join(f"{k}={v:.0f}MB" for k, v in rams.items())
+                    if ram_pct < 70:
+                        status = "healthy"
+                        score = 0.9
+                    elif ram_pct < 90:
+                        status = "warning"
+                        score = 0.5
+                    else:
+                        status = "critical"
+                        score = 0.1
+                    finding = f"Daemon: total={total_ram:.0f}MB ({ram_pct}% of {_SIM_MAX_RAM_MB:.0f}MB capacity) [{detail}]"
+                    self._persist(db, status=status, health_score=score, primary_issue=finding)
+                    return {"status": status, "latest_finding": finding, "last_checked": ts}
+        except Exception:
+            pass
+
+        # --- Fallback: host memory ---
         used_pct = None
         finding = "Unable to determine memory usage"
         try:
@@ -116,10 +149,38 @@ class MemoryAgent(BaseAgent):
 
 
 class CPUAgent(BaseAgent):
-    """Checks CPU load relative to CPU cores."""
+    """Checks CPU utilisation. Prefers infrastructure simulator daemon; falls back to host load average."""
 
     def check(self, db) -> Dict[str, Any]:
         ts = datetime.utcnow().isoformat()
+
+        # --- Primary: simulator daemon ---
+        try:
+            from src.simulator_bridge import get_simulator_client
+            client = get_simulator_client()
+            if client:
+                metrics = client.get_current_metrics()
+                if metrics and "subsystems" in metrics:
+                    cpus = {k: v["cpu"] for k, v in metrics["subsystems"].items()}
+                    avg_cpu = round(sum(cpus.values()) / len(cpus), 1)
+                    max_cpu = round(max(cpus.values()), 1)
+                    detail = ", ".join(f"{k}={v:.1f}%" for k, v in cpus.items())
+                    if avg_cpu < 50 and max_cpu < 70:
+                        status = "healthy"
+                        score = 0.9
+                    elif avg_cpu < 70 or max_cpu < 90:
+                        status = "warning"
+                        score = 0.5
+                    else:
+                        status = "critical"
+                        score = 0.1
+                    finding = f"Daemon: avg={avg_cpu}% peak={max_cpu}% [{detail}]"
+                    self._persist(db, status=status, health_score=score, primary_issue=finding)
+                    return {"status": status, "latest_finding": finding, "last_checked": ts}
+        except Exception:
+            pass
+
+        # --- Fallback: host load average ---
         try:
             load1, _, _ = os.getloadavg()
             cores = os.cpu_count() or 1
