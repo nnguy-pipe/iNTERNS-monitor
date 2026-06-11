@@ -446,22 +446,6 @@ def run_daemon(port: int = 9999, export_interval: float = 5.0, export_dir: str =
         while running:
             with lock:
                 simulation.step()
-            
-            # Periodic export
-            if time.time() - last_export > export_interval:
-                try:
-                    json_data = simulation.export_json()
-                    with open(f'{export_dir}/metrics_latest.json', 'w') as f:
-                        f.write(json_data)
-                    
-                    xml_data = simulation.export_xml()
-                    with open(f'{export_dir}/metrics_latest.xml', 'w') as f:
-                        f.write(xml_data)
-                except Exception as e:
-                    print(f'Export error: {e}', file=sys.stderr)
-                
-                last_export = time.time()
-            
             time.sleep(1.0)
     
     # Start HTTP server
