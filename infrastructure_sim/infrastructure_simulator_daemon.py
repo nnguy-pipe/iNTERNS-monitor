@@ -74,6 +74,8 @@ class Subsystem:
         if self.ram_mode == 'leak':
             leak = self.leak_rate * dt
             new_ram = self.ram + self.ram_trend + ram_noise + ram_external + leak
+            if new_ram > 8000:
+                new_ram = 8000 - abs(random.gauss(0, self.ram_volatility));
         elif self.ram_mode == 'proportional':
             new_ram = self.base_ram * (1.0 + external_load + (self.cpu / 100.0)) + self.ram_trend + ram_noise
         elif self.ram_mode == 'cache':
@@ -133,9 +135,14 @@ class LiveSimulation:
             for name, sub in self.subsystems.items():
                 sub.ram_mode = 'leak'
                 sub.leak_rate = sub.base_ram * 0.005
-            self.sustained_base_ext = {s: random.uniform(0.3, 0.5) for s in self.subsystems}
-            self.user_counts = {s: random.randint(500, 800) if name == 'web' else random.randint(50, 150) 
-                               for name, s in self.subsystems.items()}
+            self.sustained_base_ext = {
+                name: random.uniform(0.3, 0.5)
+                for name in self.subsystems
+            }
+            self.user_counts = {
+                name: random.randint(500, 800) if name == 'web' else random.randint(50, 150)
+                for name in self.subsystems
+            }
         elif preset == 'low_ram':
             for name, sub in self.subsystems.items():
                 sub.ram_mode = 'leak'

@@ -1,4 +1,4 @@
 #ignore inital setup files
 node_modules
 .env.*
-.pyc.*
+*.pyc
