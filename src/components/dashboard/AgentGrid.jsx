@@ -4,6 +4,10 @@ function AgentGrid({ agents, environment }) {
   const [agentList, setAgentList] = useState(agents);
 
   useEffect(() => {
+    setAgentList(agents);
+  }, [agents]);
+
+  useEffect(() => {
     fetch('http://localhost:8000/api/simulator/health')
       .then(response => response.json())
       .then(data => {
@@ -20,9 +24,11 @@ function AgentGrid({ agents, environment }) {
 
   return (
     <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
-      {agents.map(agent => (
-        <AgentCard key={agent.name} {...agent} />
+      
+      {agentList.map((agent, index) => (
+        <AgentCard key={agent.name || index} {...agent} />
       ))}
+
     </section>
   );
 }
