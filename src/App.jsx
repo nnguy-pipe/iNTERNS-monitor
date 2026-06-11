@@ -12,12 +12,51 @@ import mockAgents from './data/mockAgents.js';
 import mockAlerts from './data/mockAlerts.js';
 import mockReports from './data/mockReports.js';
 import mockSkills from './data/mockSkills.js';
+import { fetchAgentChecks } from './utils/api.js';
 
 const environments = ['CI', 'PROD'];
+
+// Mapping from backend agent identifiers to frontend display metadata
+const AGENT_META = {
+  infrastructure: { name: 'Infrastructure Agent', scope: 'Cloud infrastructure and network health' },
+  memory: { name: 'Memory Agent', scope: 'Heap and container memory pressure' },
+  cpu: { name: 'CPU Agent', scope: 'CPU load and core utilization' },
+  ci: { name: 'CI/CD Agent', scope: 'Pipeline and merge health' },
+  api: { name: 'API Agent', scope: 'Public endpoint latency and availability' },
+};
+
+const STATUS_LABEL = { healthy: 'Healthy', warning: 'Warning', critical: 'Critical', unknown: 'Unknown' };
+const STATUS_CONFIDENCE = { healthy: 97, warning: 72, critical: 38, unknown: 50 };
+
+function formatLastChecked(isoTimestamp) {
+  try {
+    const diffSec = Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000);
+    if (diffSec < 5) return 'just now';
+    if (diffSec < 60) return `${diffSec} sec ago`;
+    return `${Math.floor(diffSec / 60)} min ago`;
+  } catch {
+    return 'recently';
+  }
+}
+
+function mapBackendAgents(backendAgents) {
+  return backendAgents.map((a) => {
+    const meta = AGENT_META[a.agent] || { name: a.agent, scope: '' };
+    return {
+      name: meta.name,
+      scope: meta.scope,
+      status: STATUS_LABEL[a.status] || 'Unknown',
+      latestFinding: a.latest_finding || 'No data',
+      lastChecked: formatLastChecked(a.last_checked),
+      confidenceScore: STATUS_CONFIDENCE[a.status] ?? 50,
+    };
+  });
+}
 
 function App() {
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
+  const [liveAgents, setLiveAgents] = useState(null); // null = not yet loaded
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -27,8 +66,29 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // Poll backend agent checks; fall back silently to mock data when unavailable
+  useEffect(() => {
+    let active = true;
+
+    async function pollAgents() {
+      try {
+        const data = await fetchAgentChecks();
+        if (!active || !data.agents) return;
+        setLiveAgents(mapBackendAgents(data.agents));
+      } catch {
+        // backend unavailable — keep using mock data
+        if (active) setLiveAgents(null);
+      }
+    }
+
+    const id = setInterval(pollAgents, 10000);
+    pollAgents();
+
+    return () => { active = false; clearInterval(id); };
+  }, []);
+
   const activeAlerts = mockAlerts[environment] || [];
-  const currentAgents = mockAgents[environment] || [];
+  const currentAgents = liveAgents || mockAgents[environment] || [];
   const report = mockReports[environment];
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
