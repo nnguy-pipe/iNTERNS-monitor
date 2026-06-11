@@ -1,6 +1,6 @@
 import StatusBadge from '../ui/StatusBadge.jsx';
 
-function HealthSummary({ status, score, activeAlerts, environment, summary }) {
+function HealthSummary({ status, score, activeAlerts, environment, summary, scoreSource = 'backend' }) {
   // Generate contextual health label
   const getHealthLabel = () => {
     if (score >= 85) return 'Running smoothly';
@@ -48,6 +48,13 @@ function HealthSummary({ status, score, activeAlerts, environment, summary }) {
                 <span className="text-sm font-medium text-slate-500">/100</span>
               </div>
               <p className="mt-2 text-xs text-slate-600">{getHealthLabel()}</p>
+              <p
+                className={`mt-1 text-[11px] font-medium uppercase tracking-[0.08em] ${
+                  scoreSource === 'backend' ? 'text-emerald-700' : 'text-amber-700'
+                }`}
+              >
+                Source: {scoreSource === 'backend' ? 'Backend' : 'Fallback'}
+              </p>
               <div className="mt-3 w-24 h-1 bg-slate-200 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${getProgressColor()}`}
