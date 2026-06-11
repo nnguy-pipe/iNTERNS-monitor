@@ -60,7 +60,7 @@ function MetricsPanel({ subsystems }) {
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${activeHistory.cpu[activeHistory.cpu.length - 1] > 80 ? 'border-l-4 border-l-red-600' : ''}`}>
-          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">CPU Usage</p>
+          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">CPU Usage (%)</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={cpuData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>
@@ -75,7 +75,7 @@ function MetricsPanel({ subsystems }) {
         </div>
 
         <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${activeHistory.memory[activeHistory.memory.length - 1] > 4000 ? 'border-l-4 border-l-red-600' : ''}`}>
-          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Memory Usage</p>
+          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Memory Usage (MB)</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={memoryData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>

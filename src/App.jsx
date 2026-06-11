@@ -10,7 +10,7 @@ import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
-import { fetchAgentChecks } from './utils/api.js';
+import { API_BASE, fetchAgentChecks } from './utils/api.js';
 
 const environments = ['CI', 'PROD'];
 
@@ -63,6 +63,181 @@ function App() {
   const [health, setHealth] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [reportExportBusy, setReportExportBusy] = useState({
+    pdf: false,
+    json: false,
+    xml: false,
+  });
+  const [exportFeedback, setExportFeedback] = useState({ type: 'idle', message: '' });
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
+  const activeAlerts = healthSnapshot.alerts;
+  const report = {
+    healthScore: healthSnapshot.healthScore,
+    result: healthSnapshot.result,
+    summary: healthSnapshot.summary,
+    areasOfConcern: healthSnapshot.areasOfConcern,
+    suggestedImprovements: healthSnapshot.suggestedImprovements,
+  };
+  const healthStatus = healthSnapshot.status;
+  const healthScore = healthSnapshot.healthScore;
+  const summary = healthSnapshot.summary;
+  const skills = mockSkills[environment] || [];
+
+  function toExportTimestamp(date = new Date()) {
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  }
+
+  function triggerDownload(blob, filename) {
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function escapePdfText(text) {
+    return String(text).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  }
+
+  function buildReportPdfBlob(timestamp, snapshot) {
+    const lines = [
+      `iNTERNS Monitor Report (${snapshot.environment})`,
+      `Generated: ${timestamp}`,
+      `Health score: ${snapshot.healthScore}/100`,
+      `Result: ${snapshot.result}`,
+      `Summary: ${snapshot.summary}`,
+      '',
+      'Areas of concern:',
+      ...(snapshot.areasOfConcern.length ? snapshot.areasOfConcern.map((item) => `- ${item}`) : ['- None']),
+      '',
+      'Suggested improvements:',
+      ...(snapshot.suggestedImprovements.length ? snapshot.suggestedImprovements.map((item) => `- ${item}`) : ['- None']),
+    ];
+
+    const textOps = [];
+    let y = 780;
+    for (const line of lines) {
+      textOps.push(`1 0 0 1 40 ${y} Tm (${escapePdfText(line)}) Tj`);
+      y -= 18;
+    }
+
+    const stream = `BT\n/F1 12 Tf\n${textOps.join('\n')}\nET`;
+    const objects = [];
+    const offsets = [0];
+
+    objects.push('<< /Type /Catalog /Pages 2 0 R >>');
+    objects.push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    objects.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>');
+    objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+
+    let pdf = '%PDF-1.4\n';
+    objects.forEach((object, index) => {
+      offsets.push(pdf.length);
+      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    });
+
+    const xrefOffset = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += '0000000000 65535 f \n';
+    for (let i = 1; i < offsets.length; i += 1) {
+      pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+    }
+    pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+    return new Blob([pdf], { type: 'application/pdf' });
+  }
+
+  function setExportBusy(format, isBusy) {
+    setReportExportBusy((current) => ({ ...current, [format]: isBusy }));
+  }
+
+  function setExportMessage(type, message) {
+    setExportFeedback({ type, message });
+  }
+
+  function openReport() {
+    const reportSection = document.getElementById('reports');
+    if (!reportSection) {
+      setExportMessage('error', 'Report section is not available right now.');
+      return;
+    }
+    reportSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    reportSection.focus({ preventScroll: true });
+  }
+
+  const reportSnapshot = useMemo(
+    () => ({
+      environment,
+      healthScore: healthSnapshot.healthScore,
+      result: healthSnapshot.result,
+      summary: healthSnapshot.summary,
+      areasOfConcern: healthSnapshot.areasOfConcern,
+      suggestedImprovements: healthSnapshot.suggestedImprovements,
+    }),
+    [environment, healthSnapshot]
+  );
+
+  async function downloadPdfReport() {
+    if (reportExportBusy.pdf) return;
+    const timestamp = toExportTimestamp();
+    setExportBusy('pdf', true);
+    try {
+      const blob = buildReportPdfBlob(timestamp, reportSnapshot);
+      triggerDownload(blob, `report-${environment.toLowerCase()}-${timestamp}.pdf`);
+      setExportMessage('success', `PDF download started (${timestamp}).`);
+    } finally {
+      setExportBusy('pdf', false);
+    }
+  }
+
+  async function downloadSimulatorJson() {
+    if (reportExportBusy.json) return;
+    const timestamp = toExportTimestamp();
+    setExportBusy('json', true);
+    try {
+      const response = await fetch(`${API_BASE}/api/simulator/export/json`, { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      triggerDownload(blob, `simulator-${environment.toLowerCase()}-${timestamp}.json`);
+      setExportMessage('success', `JSON download started (${timestamp}).`);
+    } catch (error) {
+      setExportMessage('error', `JSON download failed: ${error.message}`);
+    } finally {
+      setExportBusy('json', false);
+    }
+  }
+
+  async function downloadSimulatorXml() {
+    if (reportExportBusy.xml) return;
+    const timestamp = toExportTimestamp();
+    setExportBusy('xml', true);
+    try {
+      const response = await fetch(`${API_BASE}/api/simulator/export/xml`, { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      if (!payload.xml) {
+        throw new Error('Response did not include XML content');
+      }
+      const blob = new Blob([payload.xml], { type: 'application/xml' });
+      triggerDownload(blob, `simulator-${environment.toLowerCase()}-${timestamp}.xml`);
+      setExportMessage('success', `XML download started (${timestamp}).`);
+    } catch (error) {
+      setExportMessage('error', `XML download failed: ${error.message}`);
+    } finally {
+      setExportBusy('xml', false);
+    }
+  }
 
   // fetch/ load data function
   async function loadData() {
@@ -118,23 +293,6 @@ function App() {
     return () => { active = false; clearInterval(id); };
   }, []);
 
-  const currentAgents = liveAgents || [];
-  const skills = mockSkills[environment] || [];
-  const [selectedAlert, setSelectedAlert] = useState(null);
-  const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
-  const activeAlerts = healthSnapshot.alerts;
-  const report = {
-    healthScore: healthSnapshot.healthScore,
-    result: healthSnapshot.result,
-    summary: healthSnapshot.summary,
-    areasOfConcern: healthSnapshot.areasOfConcern,
-    suggestedImprovements: healthSnapshot.suggestedImprovements,
-  };
-  const healthStatus = healthSnapshot.status;
-  const healthScore = healthSnapshot.healthScore;
-  const summary = healthSnapshot.summary;
-
-
   useEffect(() => {
     if (!selectedAlert) return;
     const stillActive = activeAlerts.find((alert) => alert.id === selectedAlert.id);
@@ -159,6 +317,7 @@ function App() {
             activeAlerts={activeAlerts.length}
             environment={environment}
             summary={summary}
+            onOpenReport={openReport}
           />
 
           <section id="agents" className="space-y-6">
@@ -176,7 +335,17 @@ function App() {
 
           <section className="grid gap-6 lg:grid-cols-12 items-start">
             <div className="lg:col-span-8">
-              <ReportPreview report={report} />
+              <ReportPreview
+                report={report}
+                onDownloadPdf={downloadPdfReport}
+                onDownloadJson={downloadSimulatorJson}
+                onDownloadXml={downloadSimulatorXml}
+                exportStatus={{
+                  busy: reportExportBusy,
+                  type: exportFeedback.type,
+                  message: exportFeedback.message,
+                }}
+              />
             </div>
             <div className="lg:col-span-4">
               <RecommendedNextSteps skills={skills} />
