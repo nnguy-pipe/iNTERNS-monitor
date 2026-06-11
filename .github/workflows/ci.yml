@@ -38,7 +38,6 @@ jobs:
 
       - name: Test with pytest
         run: |
-          source venv/bin/activate
           pytest tests/ -v --cov=src --cov-report=xml
 
       - name: Upload coverage to Codecov
@@ -46,3 +45,31 @@ jobs:
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+
+      # NEW STEP: Send CI telemetry event to ingestion endpoint
+      - name: Send CI telemetry event
+        if: success()   # only run if all previous steps passed
+        env:
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+        run: |
+          echo "Sending CI telemetry event to $INGEST_URL/events"
+
+          curl -X POST "$INGEST_URL/events" \
+            -H "Content-Type: application/json" \
+            --fail \
+            -d "{
+              \"source\": \"workflow\",
+              \"source_id\": \"${GITHUB_RUN_ID}\",
+              \"event_type\": \"business_event\",
+              \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+              \"environment\": \"ci\",
+              \"system_name\": \"github_actions\",
+              \"data\": {
+                \"repo\": \"${GITHUB_REPOSITORY}\",
+                \"workflow\": \"${GITHUB_WORKFLOW}\",
+                \"run_id\": \"${GITHUB_RUN_ID}\",
+                \"status\": \"success\"
+              }
+            }"
+
+          echo "Telemetry event successfully ingested"
