@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, api-mekha, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main, api-mekha, develop]
 
 jobs:
   test:
@@ -46,14 +46,12 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
 
-      # NEW STEP: Send CI telemetry event to ingestion endpoint
-      - name: Send CI telemetry event
-        if: success()   # only run if all previous steps passed
+      # ⭐ SUCCESS TELEMETRY
+      - name: Send CI success telemetry event
+        if: success()
         env:
           INGEST_URL: ${{ secrets.INGEST_URL }}
         run: |
-          echo "Sending CI telemetry event to $INGEST_URL/events"
-
           curl -X POST "$INGEST_URL/events" \
             -H "Content-Type: application/json" \
             --fail \
@@ -72,4 +70,26 @@ jobs:
               }
             }"
 
-          echo "Telemetry event successfully ingested"
+      # ⭐ FAILURE TELEMETRY
+      - name: Send CI failure telemetry event
+        if: failure()
+        env:
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+        run: |
+          curl -X POST "$INGEST_URL/events" \
+            -H "Content-Type: application/json" \
+            --fail \
+            -d "{
+              \"source\": \"workflow\",
+              \"source_id\": \"${GITHUB_RUN_ID}\",
+              \"event_type\": \"business_event\",
+              \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+              \"environment\": \"ci\",
+              \"system_name\": \"github_actions\",
+              \"data\": {
+                \"repo\": \"${GITHUB_REPOSITORY}\",
+                \"workflow\": \"${GITHUB_WORKFLOW}\",
+                \"run_id\": \"${GITHUB_RUN_ID}\",
+                \"status\": \"failure\"
+              }
+            }"
