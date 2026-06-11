@@ -40,56 +40,61 @@ jobs:
         run: |
           pytest tests/ -v --cov=src --cov-report=xml
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
+      # There's a rate limit for this one, so we can enable it later if we want
+      # - name: Upload coverage to Codecov
+      #   uses: codecov/codecov-action@v3
+      #   with:
+      #     files: ./coverage.xml
+      #     fail_ci_if_error: false
 
-      # ⭐ SUCCESS TELEMETRY
-      - name: Send CI success telemetry event
-        if: success()
-        env:
-          INGEST_URL: ${{ secrets.INGEST_URL }}
-        run: |
-          curl -X POST "$INGEST_URL/events" \
-            -H "Content-Type: application/json" \
-            --fail \
-            -d "{
-              \"source\": \"workflow\",
-              \"source_id\": \"${GITHUB_RUN_ID}\",
-              \"event_type\": \"business_event\",
-              \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
-              \"environment\": \"ci\",
-              \"system_name\": \"github_actions\",
-              \"data\": {
-                \"repo\": \"${GITHUB_REPOSITORY}\",
-                \"workflow\": \"${GITHUB_WORKFLOW}\",
-                \"run_id\": \"${GITHUB_RUN_ID}\",
-                \"status\": \"success\"
-              }
-            }"
 
-      # ⭐ FAILURE TELEMETRY
-      - name: Send CI failure telemetry event
-        if: failure()
-        env:
-          INGEST_URL: ${{ secrets.INGEST_URL }}
-        run: |
-          curl -X POST "$INGEST_URL/events" \
-            -H "Content-Type: application/json" \
-            --fail \
-            -d "{
-              \"source\": \"workflow\",
-              \"source_id\": \"${GITHUB_RUN_ID}\",
-              \"event_type\": \"business_event\",
-              \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
-              \"environment\": \"ci\",
-              \"system_name\": \"github_actions\",
-              \"data\": {
-                \"repo\": \"${GITHUB_REPOSITORY}\",
-                \"workflow\": \"${GITHUB_WORKFLOW}\",
-                \"run_id\": \"${GITHUB_RUN_ID}\",
-                \"status\": \"failure\"
-              }
-            }"
+      # This requires a live api (no local host)
+      # # ⭐ FAILURE TELEMETRY
+      # - name: Send CI failure telemetry event
+      #   if: failure()
+      #   env:
+      #     INGEST_URL: ${{ secrets.INGEST_URL }}
+      #   run: |
+      #     curl -X POST "$INGEST_URL/events" \
+      #       -H "Content-Type: application/json" \
+      #       --fail \
+      #       -d "{
+      #         \"source\": \"workflow\",
+      #         \"source_id\": \"${GITHUB_RUN_ID}\",
+      #         \"event_type\": \"business_event\",
+      #         \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+      #         \"environment\": \"ci\",
+      #         \"system_name\": \"github_actions\",
+      #         \"data\": {
+      #           \"repo\": \"${GITHUB_REPOSITORY}\",
+      #           \"workflow\": \"${GITHUB_WORKFLOW}\",
+      #           \"run_id\": \"${GITHUB_RUN_ID}\",
+      #           \"status\": \"failure\"
+      #         }
+      #       }"
+
+      # # ⭐ SUCCESS TELEMETRY
+      # - name: Send CI success telemetry event
+      #   if: success()
+      #   env:
+      #     INGEST_URL: ${{ secrets.INGEST_URL }}
+      #   run: |
+      #     curl -X POST "$INGEST_URL/events" \
+      #       -H "Content-Type: application/json" \
+      #       --fail \
+      #       -d "{
+      #         \"source\": \"workflow\",
+      #         \"source_id\": \"${GITHUB_RUN_ID}\",
+      #         \"event_type\": \"business_event\",
+      #         \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+      #         \"environment\": \"ci\",
+      #         \"system_name\": \"github_actions\",
+      #         \"data\": {
+      #           \"repo\": \"${GITHUB_REPOSITORY}\",
+      #           \"workflow\": \"${GITHUB_WORKFLOW}\",
+      #           \"run_id\": \"${GITHUB_RUN_ID}\",
+      #           \"status\": \"success\"
+      #         }
+      #       }"
+
+      
