@@ -14,17 +14,6 @@ function AgentCard({name, cpu, ram, active_users, external_load, event_spike }) 
         </div>
         <StatusBadge status={status} />
       </div>
-      {/*previous code from mock testing */}
-      {/* <div className="mt-4 space-y-3">
-        <div>
-          <p className="text-xs text-slate-500 font-medium">Finding</p>
-          <p className="mt-1 text-sm text-slate-700">{latestFinding}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500 font-medium">Checked</p>
-          <p className="mt-1 text-sm text-slate-700">{lastChecked}</p>
-        </div>
-      </div> */}
     </article>
   );
 }

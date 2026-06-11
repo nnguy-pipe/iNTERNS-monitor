@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TopNav from './components/layout/TopNav.jsx';
 import PageShell from './components/layout/PageShell.jsx';
 import HealthSummary from './components/dashboard/HealthSummary.jsx';
@@ -8,13 +8,13 @@ import AlertsFeed from './components/dashboard/AlertsFeed.jsx';
 import AlertDetailsDrawer from './components/dashboard/AlertDetailsDrawer.jsx';
 import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
-import mockAlerts from './data/mockAlerts.js';
-import mockReports from './data/mockReports.js';
 import mockSkills from './data/mockSkills.js';
+import { deriveHealthSnapshot } from './utils/health.js';
 
 const environments = ['CI', 'PROD'];
 
 function App() {
+  const pollingInterval = 2500;
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
 
@@ -38,7 +38,7 @@ function App() {
       setHealth(healthRes);
       setApiMetrics(metricsRes);
       // Convert subsystems object → array
-      const subsystemAgents = Object.entries(metricsRes.subsystems).map(
+      const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
         ([name, stats]) => ({ name, ...stats })
       );
 
@@ -53,39 +53,34 @@ function App() {
     const timer = setInterval(() => {
       loadData();
       setUpdatedAt(new Date());
-    }, 5000); // Poll every 5 seconds
+    }, pollingInterval);
 
     return () => clearInterval(timer);
   }, []);
 
-  const activeAlerts = mockAlerts[environment] || [];
-  const currentAgents = subsystems[environment] || [];
-  const report = mockReports[environment];
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
-  // commented out for testing nico
-  // useEffect(() => {
-  //   // Auto-open the critical alert in PROD to guide the demo story
-  //   if (environment === 'PROD') {
-  //     const critical = (mockAlerts.PROD || []).find((a) => a.severity === 'Critical');
-  //     if (critical) setSelectedAlert(critical);
-  //   } else {
-  //     setSelectedAlert(null);
-  //   }
-  // }, [environment]);
+  const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
+  const activeAlerts = healthSnapshot.alerts;
+  const report = {
+    healthScore: healthSnapshot.healthScore,
+    result: healthSnapshot.result,
+    summary: healthSnapshot.summary,
+    areasOfConcern: healthSnapshot.areasOfConcern,
+    suggestedImprovements: healthSnapshot.suggestedImprovements,
+  };
+  const healthStatus = healthSnapshot.status;
+  const healthScore = healthSnapshot.healthScore;
+  const summary = healthSnapshot.summary;
 
-  // Derive health status from agents/alerts for demo storytelling
-  const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
-  const hasHighAlert = activeAlerts.some((a) => a.severity === 'High');
-  const hasCriticalAgent = currentAgents.some((ag) => ag.status === 'Critical');
 
-  let healthStatus = 'Healthy';
-  if (hasCriticalAlert || hasCriticalAgent) healthStatus = 'Critical';
-  else if (hasHighAlert || currentAgents.some((ag) => ag.status === 'Degraded' || ag.status === 'Warning'))
-    healthStatus = 'Degraded';
-
-  const healthScore = report?.healthScore ?? (environment === 'PROD' ? 64 : 89);
-  const summary = report?.summary ?? '';
+  useEffect(() => {
+    if (!selectedAlert) return;
+    const stillActive = activeAlerts.find((alert) => alert.id === selectedAlert.id);
+    if (!stillActive) {
+      setSelectedAlert(null);
+    }
+  }, [activeAlerts, selectedAlert]);
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
