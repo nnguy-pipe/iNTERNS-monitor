@@ -1,6 +1,6 @@
 import StatusBadge from '../ui/StatusBadge.jsx';
 
-function AgentCard({ name, scope, status, latestFinding, lastChecked }) {
+function AgentCard({name, scope, status, latestFinding, lastChecked }) {
   return (
     <article className="h-full rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-4">
