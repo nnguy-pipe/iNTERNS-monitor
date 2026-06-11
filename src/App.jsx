@@ -118,9 +118,7 @@ function App() {
     return () => { active = false; clearInterval(id); };
   }, []);
 
-  const activeAlerts = mockAlerts[environment] || [];
-  const currentAgents = liveAgents || mockAgents[environment] || [];
-  const report = mockReports[environment];
+  const currentAgents = liveAgents || [];
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
   const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
