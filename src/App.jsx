@@ -25,7 +25,6 @@ function App() {
   const [subsystems, setSubsystems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-
   // fetch/ load data function
   async function loadData() {
       setLoading(true);
@@ -128,7 +127,7 @@ function App() {
             </div>
           </section>
 
-          <MetricsPanel environment={environment} />
+          <MetricsPanel subsystems={subsystems} />
 
           <AlertDetailsDrawer
             alert={selectedAlert}
