@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TopNav from './components/layout/TopNav.jsx';
 import PageShell from './components/layout/PageShell.jsx';
 import HealthSummary from './components/dashboard/HealthSummary.jsx';
@@ -10,7 +10,15 @@ import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockAgents from './data/mockAgents.js';
 import mockSkills from './data/mockSkills.js';
-import { fetchAgentChecks, fetchSimulatorMetrics, fetchUserReport } from './utils/api.js';
+import { deriveHealthSnapshot } from './utils/health.js';
+import { API_BASE, fetchAgentChecks, fetchSimulatorMetrics, fetchUserReport } from './utils/api.js';
+import {
+  buildReportPdfBlob,
+  buildTelemetrySnapshot,
+  formatExportTimestamp,
+  formatReadableTimestamp,
+  openReportSection,
+} from './utils/reportExport.js';
 
 const environments = ['CI', 'PROD'];
 
@@ -203,6 +211,7 @@ function maxStatus(a, b) {
 }
 
 function App() {
+  const pollingInterval = 2500;
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
   const [liveAgents, setLiveAgents] = useState(null); // null = not yet loaded
@@ -215,10 +224,129 @@ function App() {
   const [liveReport, setLiveReport] = useState(null);
   const [liveTelemetryStatus, setLiveTelemetryStatus] = useState(null);
   const [liveAlerts, setLiveAlerts] = useState([]);
+  const [reportExportBusy, setReportExportBusy] = useState({
+    pdf: false,
+    json: false,
+    xml: false,
+  });
+  const [exportFeedback, setExportFeedback] = useState({ type: 'idle', message: '' });
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
+  const activeAlerts = healthSnapshot.alerts;
+  const report = {
+    healthScore: healthSnapshot.healthScore,
+    result: healthSnapshot.result,
+    summary: healthSnapshot.summary,
+    areasOfConcern: healthSnapshot.areasOfConcern,
+    suggestedImprovements: healthSnapshot.suggestedImprovements,
+  };
+  const healthStatus = healthSnapshot.status;
+  const healthScore = healthSnapshot.healthScore;
+  const summary = healthSnapshot.summary;
+  const skills = mockSkills[environment] || [];
 
-  // fetch
-  useEffect(() => {
-    async function loadData() {
+  function triggerDownload(blob, filename) {
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function setExportBusy(format, isBusy) {
+    setReportExportBusy((current) => ({ ...current, [format]: isBusy }));
+  }
+
+  function setExportMessage(type, message) {
+    setExportFeedback({ type, message });
+  }
+
+  function openReport() {
+    if (!openReportSection(document)) {
+      setExportMessage('error', 'Report section is not available right now.');
+    }
+  }
+
+  const reportSnapshot = useMemo(
+    () => ({
+      environment,
+      healthScore: healthSnapshot.healthScore,
+      result: healthSnapshot.result,
+      summary: healthSnapshot.summary,
+      areasOfConcern: healthSnapshot.areasOfConcern,
+      suggestedImprovements: healthSnapshot.suggestedImprovements,
+      telemetrySnapshot: buildTelemetrySnapshot(subsystems),
+    }),
+    [environment, healthSnapshot, subsystems]
+  );
+
+  async function downloadPdfReport() {
+    if (reportExportBusy.pdf) return;
+    const exportMoment = new Date();
+    const timestamp = formatExportTimestamp(exportMoment);
+    setExportBusy('pdf', true);
+    try {
+      const blob = buildReportPdfBlob({
+        environment,
+        generatedAt: exportMoment,
+        report: reportSnapshot,
+        telemetrySnapshot: reportSnapshot.telemetrySnapshot,
+      });
+      triggerDownload(blob, `report-${environment.toLowerCase()}-${timestamp}.pdf`);
+      setExportMessage('success', `PDF download started (${formatReadableTimestamp(exportMoment)}).`);
+    } finally {
+      setExportBusy('pdf', false);
+    }
+  }
+
+  async function downloadSimulatorJson() {
+    if (reportExportBusy.json) return;
+    const timestamp = formatExportTimestamp();
+    setExportBusy('json', true);
+    try {
+      const response = await fetch(`${API_BASE}/api/simulator/export/json`, { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      triggerDownload(blob, `simulator-${environment.toLowerCase()}-${timestamp}.json`);
+      setExportMessage('success', `JSON download started (${timestamp}).`);
+    } catch (error) {
+      setExportMessage('error', `JSON download failed: ${error.message}`);
+    } finally {
+      setExportBusy('json', false);
+    }
+  }
+
+  async function downloadSimulatorXml() {
+    if (reportExportBusy.xml) return;
+    const timestamp = formatExportTimestamp();
+    setExportBusy('xml', true);
+    try {
+      const response = await fetch(`${API_BASE}/api/simulator/export/xml`, { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      if (!payload.xml) {
+        throw new Error('Response did not include XML content');
+      }
+      const blob = new Blob([payload.xml], { type: 'application/xml' });
+      triggerDownload(blob, `simulator-${environment.toLowerCase()}-${timestamp}.xml`);
+      setExportMessage('success', `XML download started (${timestamp}).`);
+    } catch (error) {
+      setExportMessage('error', `XML download failed: ${error.message}`);
+    } finally {
+      setExportBusy('xml', false);
+    }
+  }
+
+  // fetch/ load data function
+  async function loadData() {
       setLoading(true);
 
       const [healthRes, metricsRes] = await Promise.all([
@@ -230,21 +358,21 @@ function App() {
       setHealth(healthRes);
       setApiMetrics(metricsRes);
       // Convert subsystems object → array
-      const subsystemAgents = Object.entries(metricsRes.subsystems).map(
+      const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
         ([name, stats]) => ({ name, ...stats })
       );
 
       setSubsystems(subsystemAgents);
       setLoading(false);
-    }
-
+  }
+  useEffect(() => {
     loadData();
   }, [environment]);
-
   useEffect(() => {
     const timer = setInterval(() => {
+      loadData();
       setUpdatedAt(new Date());
-    }, 10000);
+    }, pollingInterval);
 
     return () => clearInterval(timer);
   }, []);
@@ -439,7 +567,7 @@ function App() {
             </div>
           </section>
 
-          <MetricsPanel environment={environment} />
+          <MetricsPanel subsystems={subsystems} />
 
           <AlertDetailsDrawer
             alert={selectedAlert}

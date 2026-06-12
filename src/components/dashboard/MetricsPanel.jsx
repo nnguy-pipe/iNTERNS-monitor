@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import MetricCard from '../ui/MetricCard.jsx';
-import mockMetrics from '../../data/mockMetrics.js';
 import { fetchSimulatorMetrics } from '../../utils/api.js';
 
 // 2× sum of default subsystem base RAM values (web=512, app=256, db=1024, cache=512 → 2304 MB)
@@ -11,92 +10,28 @@ function buildSeries(values) {
   return values.map((value, index) => ({ time: `T${index + 1}`, value }));
 }
 
-function MetricsPanel({ environment }) {
-  const [metrics, setMetrics] = useState(mockMetrics[environment] || mockMetrics.CI);
-  const [dataSource, setDataSource] = useState('mock'); // 'live' | 'mock'
-
+function MetricsPanel({ subsystems }) {
+  const dataset = 15;
+  const [history, setHistory] = useState({});
+  const [selectedMetric, setSelectedMetric] = useState("web"); //default to web, but can be switched to db or cache or app
+  // saves history (20 entries) of cpu and memory for each subsystem, updated every time new data is received from API
   useEffect(() => {
-    setMetrics(mockMetrics[environment] || mockMetrics.CI);
-    setDataSource('mock');
-  }, [environment]);
+    if (!subsystems.length) return;
 
-  useEffect(() => {
-    let active = true;
-
-    async function poll() {
-      try {
-        const data = await fetchSimulatorMetrics();
-        if (!active) return;
-
-        const subsystems = data.subsystems || {};
-        const cpuValues = Object.values(subsystems).map((s) => s.cpu);
-        const ramValues = Object.values(subsystems).map((s) => s.ram);
-
-        if (cpuValues.length === 0) return;
-
-        const avgCpu = Math.round((cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length) * 10) / 10;
-        const totalRam = ramValues.reduce((a, b) => a + b, 0);
-        const ramPct = Math.round(Math.min(100, (totalRam / SIM_MAX_RAM_MB) * 100) * 10) / 10;
-
-        setMetrics((prev) => ({
-          ...prev,
-          cpuUsage: [...prev.cpuUsage.slice(1), avgCpu],
-          memoryUsage: [...prev.memoryUsage.slice(1), ramPct],
-        }));
-        setDataSource('live');
-      } catch {
-        if (!active) return;
-        setDataSource('mock');
-        // Animate mock data for CPU and memory when daemon is unavailable
-        setMetrics((prev) => ({
-          cpuUsage: prev.cpuUsage.map((v) => {
-            const change = Math.random() * 6 - 2;
-            return Math.max(0, Math.min(100, Math.round((v + change) * 10) / 10));
-          }),
-          memoryUsage: prev.memoryUsage.map((v) => {
-            const change = Math.random() * 4 - 1.5;
-            return Math.max(0, Math.min(100, Math.round((v + change) * 10) / 10));
-          }),
-          apiLatency: prev.apiLatency.map((v) => {
-            const change = Math.random() * 18 - 7;
-            return Math.max(0, Math.round((v + change) * 10) / 10);
-          }),
-          errorRate: prev.errorRate.map((v) => {
-            const change = Math.random() * 0.8 - 0.3;
-            return Math.max(0, Math.round((v + change) * 10) / 10);
-          }),
-        }));
-      }
-    }
-
-    // Also keep the mock animation running for apiLatency and errorRate when live
-    const mockInterval = setInterval(() => {
-      if (!active) return;
-      setMetrics((prev) => ({
+    subsystems.forEach(s => {
+      setHistory(prev => ({
         ...prev,
-        apiLatency: prev.apiLatency.map((v) => {
-          const change = Math.random() * 18 - 7;
-          return Math.max(0, Math.round((v + change) * 10) / 10);
-        }),
-        errorRate: prev.errorRate.map((v) => {
-          const change = Math.random() * 0.8 - 0.3;
-          return Math.max(0, Math.round((v + change) * 10) / 10);
-        }),
+        [s.name]: {
+          cpu: [...(prev[s.name]?.cpu || []).slice(-(dataset-1)), s.cpu],
+          memory: [...(prev[s.name]?.memory || []).slice(-(dataset-1)), s.ram]
+        }
       }));
-    }, 4000);
+    });
+  }, [subsystems]);
+  const activeHistory = history[selectedMetric] || { cpu: [], memory: [] };
+  const cpuData = activeHistory.cpu.map((v, i) => ({ time: i+1, value: v }));
+  const memoryData = activeHistory.memory.map((v, i) => ({ time: i+1, value: v }));
 
-    const liveInterval = setInterval(poll, 3000);
-    poll();
-
-    return () => {
-      active = false;
-      clearInterval(liveInterval);
-      clearInterval(mockInterval);
-    };
-  }, []);
-
-  const cpuData = useMemo(() => buildSeries(metrics.cpuUsage), [metrics.cpuUsage]);
-  const memoryData = useMemo(() => buildSeries(metrics.memoryUsage), [metrics.memoryUsage]);
 
   return (
      <section id="metrics" className="space-y-6 rounded-xl bg-white p-8 border border-slate-200">
@@ -105,42 +40,57 @@ function MetricsPanel({ environment }) {
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Live metrics</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Real-time system telemetry</h2>
         </div>
-        <p className="text-sm text-slate-500">Metrics update every few seconds with simulated values.</p>
+        <p className="text-sm text-slate-500">Metrics update every few seconds with simulated values.<br></br> Displays the most recent {dataset} entries for each subsystem.</p>
       </div>
-
+      {/* Tabs */}
+      <div className="flex gap-3 border-b pb-2">
+        {subsystems.map(s => (
+          <button
+            key={s.name}
+            onClick={() => setSelectedMetric(s.name)}
+            className={`px-4 py-2 rounded-t-md ${
+              selectedMetric === s.name
+                ? "bg-white border border-b-0 font-semibold"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {s.name.toUpperCase()}
+          </button>
+        ))}
+      </div>
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${metrics.cpuUsage[metrics.cpuUsage.length - 1] > 80 ? 'border-l-4 border-l-amber-600' : ''}`}>
-          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">CPU Usage</p>
+        <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${activeHistory.cpu[activeHistory.cpu.length - 1] > 80 ? 'border-l-4 border-l-red-600' : ''}`}>
+          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">CPU Usage (%)</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cpuData}>
+              <LineChart data={cpuData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fill: '#475569' }} />
-                <YAxis tick={{ fill: '#475569' }} domain={[0, 100]} />
+                <XAxis dataKey="time" interval={0} tick={{ fill: '#475569' }} tickMargin={2} />
+                <YAxis tick={{ fill: '#475569' }} domain={[0, 100]} tickMargin={2} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={3} dot={false} />
+                <Line type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={3} dot={false} unit={"%"} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${metrics.memoryUsage[metrics.memoryUsage.length - 1] > 90 ? 'border-l-4 border-l-red-600' : ''}`}>
-          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Memory Usage</p>
+        <div className={`rounded-lg bg-slate-50 p-6 border border-slate-200 ${activeHistory.memory[activeHistory.memory.length - 1] > 4000 ? 'border-l-4 border-l-red-600' : ''}`}>
+          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Memory Usage (MB)</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={memoryData}>
+              <LineChart data={memoryData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fill: '#475569' }} />
-                <YAxis tick={{ fill: '#475569' }} domain={[0, 100]} />
+                <XAxis dataKey="time" interval={0} tick={{ fill: '#475569' }} tickMargin={2} />
+                <YAxis tick={{ fill: '#475569' }} domain={[0, 8000]} tickMargin={2} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={false} />
+                <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={false} unit={"MB"}/>
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* <div className="grid gap-6 lg:grid-cols-2">
         {
           (() => {
             const lastLatency = metrics.apiLatency[metrics.apiLatency.length - 1];
@@ -171,7 +121,7 @@ function MetricsPanel({ environment }) {
             );
           })()
         }
-      </div>
+      </div> */}
     </section>
   );
 }

@@ -9,6 +9,15 @@ function HealthSummary({
   scoreSource = 'backend',
   onOpenReport,
 }) {
+function HealthSummary({
+  status,
+  score,
+  activeAlerts,
+  environment,
+  summary,
+  scoreSource = 'backend',
+  onOpenReport,
+}) {
   // Generate contextual health label
   const getHealthLabel = () => {
     if (score >= 85) return 'Running smoothly';
