@@ -197,7 +197,7 @@ class SimulatorClient:
         Returns:
             Event payload ready for /api/events POST endpoint:
             {
-                "source": "infrastructure_simulator",
+                "source": "observability",
                 "source_id": str,
                 "event_type": "metric",
                 "timestamp": str (ISO 8601),
@@ -214,7 +214,7 @@ class SimulatorClient:
             return None
         
         return {
-            "source": "infrastructure_simulator",
+            "source": "observability",
             "source_id": f"sim_{int(metrics['timestamp'])}_{metrics['tick']}",
             "event_type": "metric",
             "timestamp": datetime.fromtimestamp(metrics['timestamp']).isoformat() + "Z",
