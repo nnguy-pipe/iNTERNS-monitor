@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -19,43 +19,21 @@ class ReasoningEngine:
     """
 
     @staticmethod
-    def _subsystem_metric_penalty(event: Dict[str, Any]) -> Tuple[float, Optional[str]]:
-        """Compute a penalty for simulator-style subsystem metrics."""
-        subsystems = event.get("subsystems")
-        if not isinstance(subsystems, dict) or not subsystems:
-            return 0.0, None
-
-        max_cpu = 0.0
-        max_ram = 0.0
-        max_users = 0.0
-        for stats in subsystems.values():
-            if not isinstance(stats, dict):
-                continue
-            max_cpu = max(max_cpu, float(stats.get("cpu", 0)))
-            max_ram = max(max_ram, float(stats.get("ram", 0)))
-            max_users = max(max_users, float(stats.get("active_users", 0)))
-
-        penalty = 0.0
-        if max_cpu >= 90:
-            penalty += 0.9
-        elif max_cpu >= 85:
-            penalty += 0.8
-        elif max_cpu >= 75:
-            penalty += 0.65
-
-        if max_ram >= 6000:
-            penalty += 0.35
-        elif max_ram >= 3500:
-            penalty += 0.2
-
-        if max_users >= 600:
-            penalty += 0.25
-        elif max_users >= 250:
-            penalty += 0.12
-
-        if penalty <= 0:
-            return 0.0, None
-        return min(1.0, penalty), f"cpu={max_cpu:.1f} ram={max_ram:.0f} users={max_users:.0f}"
+    def _parse_timestamp(value: Any) -> datetime:
+        """Best-effort timestamp parsing for normalized payloads and tests."""
+        if isinstance(value, datetime):
+            if value.tzinfo is not None:
+                return value.astimezone(timezone.utc).replace(tzinfo=None)
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is not None:
+                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
+            except Exception:
+                return datetime.utcnow()
+        return datetime.utcnow()
 
     @staticmethod
     def compute_health_score(events: List[Dict[str, Any]]) -> float:
@@ -82,14 +60,8 @@ class ReasoningEngine:
         
         for event in events:
             # Weight recent events higher
-            event_timestamp = event.get("timestamp")
-            if isinstance(event_timestamp, str):
-                try:
-                    event_timestamp = datetime.fromisoformat(event_timestamp)
-                except:
-                    event_timestamp = now
-            
-            event_age_seconds = (now - event_timestamp).total_seconds()
+            event_time = ReasoningEngine._parse_timestamp(event.get("timestamp", now))
+            event_age_seconds = (now - event_time).total_seconds()
             recency_weight = max(0, 1.0 - (event_age_seconds / 3600))  # Decay over 1 hour
             
             # Check event type and apply penalties
@@ -276,3 +248,39 @@ class ReasoningEngine:
             })
         
         return suggestions
+
+    @staticmethod
+    def compute_confidence(events: List[Dict[str, Any]], issue: Optional[str]) -> float:
+        """Compute confidence score for this reasoning output."""
+        if not events:
+            return 0.35
+
+        confidence = 0.5
+        evidence_boost = min(0.3, len(events) * 0.02)
+        confidence += evidence_boost
+
+        if issue:
+            confidence += 0.1
+
+        # Blend across diverse signal types (logs, metrics, traces).
+        signal_types = {e.get("type") for e in events if e.get("type")}
+        confidence += min(0.1, len(signal_types) * 0.04)
+
+        return max(0.0, min(1.0, round(confidence, 2)))
+
+    @staticmethod
+    def evaluate_health(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Single-call API returning issue, reasoning, suggestions, and confidence."""
+        score = ReasoningEngine.compute_health_score(events)
+        issue = ReasoningEngine.identify_primary_issue(events)
+        reasoning = ReasoningEngine.generate_reasoning_narrative(events)
+        suggestions = ReasoningEngine.generate_suggestions(score, issue)
+        confidence = ReasoningEngine.compute_confidence(events, issue)
+
+        return {
+            "health_score": score,
+            "primary_issue": issue,
+            "reasoning": reasoning,
+            "suggestions": suggestions,
+            "confidence": confidence,
+        }

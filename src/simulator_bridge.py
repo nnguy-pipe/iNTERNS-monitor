@@ -222,13 +222,138 @@ class SimulatorClient:
             "system_name": system_name,
             "correlation_id": f"{system_name}_{environment}",
             "data": {
-                "preset": metrics['preset'],
-                "tick": metrics['tick'],
-                "uptime_seconds": metrics['uptime_seconds'],
+                "metric_name": "infrastructure_cpu_avg",
+                "value": self._subsystem_summary(metrics['subsystems']).get("cpu_avg", 0),
+                "timestamp": datetime.fromtimestamp(metrics['timestamp']).isoformat() + "Z",
+                "labels": {
+                    "preset": metrics['preset'],
+                    "tick": metrics['tick'],
+                    "uptime_seconds": metrics['uptime_seconds'],
+                    "source": "simulator",
+                },
                 "subsystems": metrics['subsystems'],
                 "summary": self._subsystem_summary(metrics['subsystems']),
             }
         }
+
+    def metrics_to_event_chain(self, system_name: str, environment: str = "ci") -> List[Dict[str, Any]]:
+        """
+        Convert simulator metrics into a correlated event chain that exercises
+        metric/log/trace reasoning, anomaly detection, and correlation paths.
+        """
+        metrics = self.get_current_metrics()
+        if not metrics:
+            return []
+
+        subsystems = metrics.get("subsystems", {}) or {}
+        summary = self._subsystem_summary(subsystems)
+        tick = metrics.get("tick", 0)
+        ts = datetime.fromtimestamp(metrics["timestamp"]).isoformat() + "Z"
+        correlation_id = f"sim_chain_{system_name}_{environment}_{int(metrics['timestamp'])}_{tick}"
+
+        events: List[Dict[str, Any]] = []
+
+        # Emit at least 5 samples for the same metric name to unlock statistical anomaly checks.
+        cpu_values: List[float] = []
+        for subsystem, values in subsystems.items():
+            cpu = float(values.get("cpu", 0))
+            cpu_values.append(cpu)
+            events.append(
+                {
+                    "source": "observability",
+                    "source_id": f"sim-{tick}-{subsystem}-cpu",
+                    "event_type": "metric",
+                    "timestamp": ts,
+                    "environment": environment,
+                    "system_name": system_name,
+                    "correlation_id": correlation_id,
+                    "data": {
+                        "metric_name": "cpu_usage_percent",
+                        "value": cpu,
+                        "timestamp": ts,
+                        "labels": {
+                            "subsystem": subsystem,
+                            "preset": metrics.get("preset", "default"),
+                        },
+                    },
+                }
+            )
+
+        # Add one aggregate sample with a deterministic outlier in high_cpu mode.
+        cpu_avg = float(summary.get("cpu_avg", 0))
+        preset = str(metrics.get("preset", "default"))
+        cpu_outlier = min(100.0, cpu_avg + (35.0 if preset == "high_cpu" else 5.0))
+        events.append(
+            {
+                "source": "observability",
+                "source_id": f"sim-{tick}-aggregate-cpu",
+                "event_type": "metric",
+                "timestamp": ts,
+                "environment": environment,
+                "system_name": system_name,
+                "correlation_id": correlation_id,
+                "data": {
+                    "metric_name": "cpu_usage_percent",
+                    "value": round(cpu_outlier, 2),
+                    "timestamp": ts,
+                    "labels": {
+                        "subsystem": "aggregate",
+                        "preset": preset,
+                    },
+                },
+            }
+        )
+
+        # Add a workflow log burst to trigger rule-based anomaly detection and issue identification.
+        for idx in range(3):
+            events.append(
+                {
+                    "source": "workflow",
+                    "source_id": f"sim-{tick}-wf-error-{idx}",
+                    "event_type": "log",
+                    "timestamp": ts,
+                    "environment": environment,
+                    "system_name": system_name,
+                    "correlation_id": correlation_id,
+                    "data": {
+                        "message": f"Pipeline stage failed on tick {tick} (attempt {idx + 1})",
+                        "level": "error",
+                        "timestamp": ts,
+                        "source": "github_actions",
+                        "context": {
+                            "preset": preset,
+                            "tick": tick,
+                        },
+                    },
+                }
+            )
+
+        # Add a slow trace to create latency signal and cascading pattern detection.
+        events.append(
+            {
+                "source": "batch",
+                "source_id": f"sim-{tick}-trace",
+                "event_type": "trace",
+                "timestamp": ts,
+                "environment": environment,
+                "system_name": system_name,
+                "correlation_id": correlation_id,
+                "data": {
+                    "trace_id": correlation_id,
+                    "span_id": f"span-{tick}",
+                    "operation": "deploy_validation",
+                    "duration_ms": 6200 if preset == "high_cpu" else 5400,
+                    "status": "error" if preset in {"high_cpu", "high_users", "high_ram"} else "ok",
+                    "timestamp": ts,
+                    "tags": {
+                        "preset": preset,
+                        "system": system_name,
+                    },
+                },
+            }
+        )
+
+        return events
     
     @staticmethod
     def _subsystem_summary(subsystems: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
@@ -290,6 +415,14 @@ class SimulatorEventBridge:
             return None
         
         return self.client.metrics_to_event(system_name, environment)
+
+    def pull_event_chain(self, system_name: str, environment: str = "ci") -> List[Dict[str, Any]]:
+        """Pull current simulator state and convert it into a correlated event chain."""
+        if not self.client.is_available():
+            logger.warning("Simulator daemon not available")
+            return []
+
+        return self.client.metrics_to_event_chain(system_name, environment)
     
     def pull_all_preset_events(self, base_system_name: str = "simulator") -> List[Dict[str, Any]]:
         """

@@ -10,7 +10,7 @@ import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
-import { API_BASE, fetchAgentChecks, fetchLatestReport, ingestSimulatorMetrics } from './utils/api.js';
+import { API_BASE, fetchAgentChecks, fetchSimulatorMetrics, fetchUserReport } from './utils/api.js';
 import {
   buildReportPdfBlob,
   buildTelemetrySnapshot,
@@ -32,20 +32,10 @@ const AGENT_META = {
 
 const STATUS_LABEL = { healthy: 'Healthy', warning: 'Warning', critical: 'Critical', unknown: 'Unknown' };
 const STATUS_CONFIDENCE = { healthy: 97, warning: 72, critical: 38, unknown: 50 };
-const SCORE_SYSTEM_NAME = 'iMonitor';
-const REPORT_RESULT = {
-  healthy: 'All monitored subsystems are within safe operating ranges.',
-  warning: 'One or more subsystem metrics are elevated.',
-  critical: 'One or more subsystems need immediate attention.',
-  unknown: 'Latest persisted report is unavailable.',
-};
-
-function mapReportStatus(status) {
-  if (status === 'healthy') return 'Healthy';
-  if (status === 'warning') return 'Degraded';
-  if (status === 'critical') return 'Critical';
-  return 'Degraded';
-}
+const DASHBOARD_SYSTEM_NAME = import.meta.env.VITE_SYSTEM_NAME || 'infra-demo';
+const ENV_TO_BACKEND = { CI: 'ci', PROD: 'production' };
+const BACKEND_STATUS_TO_UI = { healthy: 'Healthy', warning: 'Degraded', critical: 'Critical', unknown: 'Healthy' };
+const STATUS_RANK = { Healthy: 0, Degraded: 1, Critical: 2 };
 
 function formatLastChecked(isoTimestamp) {
   try {
@@ -72,42 +62,151 @@ function mapBackendAgents(backendAgents) {
   });
 }
 
-function buildFallbackReport(healthSnapshot) {
+function mapBackendReport(backendReport, environment) {
+  const score = Number(backendReport?.health_score ?? 0.5);
+  const status = (backendReport?.status || 'unknown').toLowerCase();
+  const primaryIssue = backendReport?.primary_issue || '';
+  const suggestionsRaw = (backendReport?.suggestions || [])
+    .map((s) => (typeof s === 'string' ? s : s?.action))
+    .filter(Boolean);
+  const suggestions = environment === 'PROD'
+    ? suggestionsRaw.filter((s) => !/\bci\b/i.test(s))
+    : suggestionsRaw;
+
+  const anomalyConcerns = (backendReport?.anomalies || [])
+    .map((a) => a?.reason)
+    .filter(Boolean)
+    .filter((s) => (environment === 'PROD' ? !/\bci\b/i.test(s) : true))
+    .slice(0, 3);
+
+  const areasOfConcern = [primaryIssue, ...anomalyConcerns]
+    .filter(Boolean)
+    .filter((s) => (environment === 'PROD' ? !/\bci\b/i.test(s) : true));
+
+  const reasoningItems = (backendReport?.reasoning?.reasoning_chain || [])
+    .map((s) => String(s))
+    .filter((s) => (environment === 'PROD' ? !/\bci\b/i.test(s) : true));
+
+  const correlatedEvents = (backendReport?.correlated_events || [])
+    .map((s) => String(s));
+
+  const anomalyItems = (backendReport?.anomalies || [])
+    .map((a) => ({
+      severity: (a?.severity || 'medium').toString(),
+      reason: (a?.reason || 'Anomaly detected').toString(),
+      rule: a?.rule || a?.type || 'pattern',
+    }))
+    .filter((a) => (environment === 'PROD' ? !/\bci\b/i.test(a.reason) : true));
+
+  let result = (backendReport?.status || 'unknown').toString().toUpperCase();
+  let summary = primaryIssue || 'No primary issue identified in the latest backend report.';
+
+  if (environment === 'CI') {
+    if (status === 'healthy') {
+      result = 'CI SUCCESS';
+      summary = 'CI checks succeeded. No blocking failures detected in the latest assessment.';
+    } else if (status === 'warning' || status === 'critical') {
+      result = 'CI FAILED';
+      summary = primaryIssue
+        ? `CI failed due to: ${primaryIssue}`
+        : 'CI is degraded with failing checks. Review logs and traces for the failing stage.';
+    } else {
+      result = 'CI UNKNOWN';
+      summary = 'CI status is unknown because there are not enough recent CI events.';
+    }
+  } else if (environment === 'PROD') {
+    if (status === 'healthy') {
+      result = 'PROD STABLE';
+      summary = 'Production is stable. No active production-impacting issues were detected.';
+    } else if (status === 'warning' || status === 'critical') {
+      result = 'PROD DEGRADED';
+      summary = primaryIssue
+        ? `Production issue: ${primaryIssue}`
+        : 'Production is degraded. Investigate infrastructure, API latency, and error telemetry.';
+    } else {
+      result = 'PROD UNKNOWN';
+      summary = 'Production status is unknown due to limited recent production telemetry.';
+    }
+  }
+
   return {
-    healthScore: healthSnapshot.healthScore,
-    result: healthSnapshot.result,
-    summary: healthSnapshot.summary,
-    areasOfConcern: healthSnapshot.areasOfConcern,
-    suggestedImprovements: healthSnapshot.suggestedImprovements,
+    healthScore: Math.round(score * 100),
+    result,
+    summary,
+    areasOfConcern: areasOfConcern.length ? areasOfConcern : ['No high-priority concerns detected.'],
+    suggestedImprovements: suggestions.length ? suggestions : ['Continue monitoring and review incoming telemetry.'],
+    attachedReport: backendReport?.report_markdown || '',
+    backendStatus: backendReport?.status || 'unknown',
+    reasoningItems,
+    correlatedEvents,
+    anomalyItems,
+    source: 'backend',
+    createdAt: backendReport?.created_at || null,
   };
 }
 
-function buildDisplayReport(backendReport, fallbackReport) {
-  if (!backendReport) return fallbackReport;
+function mapReportToAlerts(report, environment) {
+  if (!report) return [];
 
-  const status = backendReport.status || 'unknown';
-  const rawScore = Number(backendReport.health_score);
-  const normalizedScore = Number.isFinite(rawScore)
-    ? (rawScore <= 1 ? rawScore * 100 : rawScore)
-    : fallbackReport.healthScore;
-  const primaryIssue =
-    typeof backendReport.primary_issue === 'string' && backendReport.primary_issue.trim()
-      ? backendReport.primary_issue.trim()
-      : 'No primary issue recorded';
-  const suggestions = Array.isArray(backendReport.suggestions) && backendReport.suggestions.length
-    ? backendReport.suggestions.filter((item) => typeof item === 'string' && item.trim())
-    : ['Continue monitoring the persisted report.'];
+  const alerts = [];
+  const status = String(report.backendStatus || '').toLowerCase();
 
-  return {
-    healthScore: Math.round(normalizedScore),
-    result: REPORT_RESULT[status] || REPORT_RESULT.unknown,
-    summary:
-      status === 'healthy'
-        ? 'The latest persisted report indicates the environment is healthy.'
-        : `The latest persisted report highlights ${primaryIssue}.`,
-    areasOfConcern: [primaryIssue],
-    suggestedImprovements: suggestions.length ? suggestions : ['Continue monitoring the persisted report.'],
-  };
+  if (report.summary && report.summary !== 'No primary issue identified in the latest backend report.') {
+    alerts.push({
+      severity: status === 'critical' ? 'Critical' : status === 'warning' ? 'High' : 'Low',
+      title: environment === 'CI' ? 'CI health finding' : 'Production health finding',
+      environment,
+      sourceAgent: 'Reasoning Engine',
+      affectedResource: environment === 'CI' ? 'CI pipeline' : 'Production services',
+      timestamp: report.createdAt ? formatLastChecked(report.createdAt) : 'recently',
+      summary: report.summary,
+      reasoning: (report.reasoningItems || []).join(' ') || report.summary,
+      suggestedActions: (report.suggestedImprovements || []).join(', '),
+      relatedSkill: environment === 'CI' ? 'CI Health Gate Review' : 'Production Incident Review',
+      confidence: status === 'critical' ? 92 : status === 'warning' ? 84 : 76,
+      status: 'Open',
+    });
+  }
+
+  (report.anomalyItems || []).slice(0, 3).forEach((item, index) => {
+    alerts.push({
+      severity: String(item.severity).toLowerCase() === 'high' ? 'High' : 'Medium',
+      title: `Anomaly detected: ${item.rule}`,
+      environment,
+      sourceAgent: 'Anomaly Engine',
+      affectedResource: environment === 'CI' ? 'CI telemetry' : 'Production telemetry',
+      timestamp: report.createdAt ? formatLastChecked(report.createdAt) : 'recently',
+      summary: item.reason,
+      reasoning: item.reason,
+      suggestedActions: (report.suggestedImprovements || []).join(', '),
+      relatedSkill: 'Anomaly Investigation',
+      confidence: 80 - index * 5,
+      status: 'Open',
+    });
+  });
+
+  return alerts;
+}
+
+function deriveTelemetryStatus(metrics) {
+  const subsystems = metrics?.subsystems || {};
+  const rows = Object.values(subsystems);
+  if (!rows.length) return null;
+
+  const avgCpu = rows.reduce((sum, row) => sum + Number(row?.cpu || 0), 0) / rows.length;
+  const maxCpu = Math.max(...rows.map((row) => Number(row?.cpu || 0)));
+  const maxRam = Math.max(...rows.map((row) => Number(row?.ram || 0)));
+  const preset = String(metrics?.preset || '').toLowerCase();
+
+  if (maxCpu >= 90 || avgCpu >= 80 || maxRam >= 1800) return 'Critical';
+  if (preset.startsWith('high_') || avgCpu >= 55 || maxRam >= 1400) return 'Degraded';
+  return 'Healthy';
+}
+
+function maxStatus(a, b) {
+  const rankA = STATUS_RANK[a] ?? 0;
+  const rankB = STATUS_RANK[b] ?? 0;
+  return rankA >= rankB ? a : b;
 }
 
 function App() {
@@ -115,29 +214,24 @@ function App() {
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
   const [liveAgents, setLiveAgents] = useState(null); // null = not yet loaded
-
+   //from API
+  const [apiHealth, setApiHealth] = useState(null);
+  const [apiMetrics, setApiMetrics] = useState(null);
   const [health, setHealth] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
   const [backendReports, setBackendReports] = useState({ CI: null, PROD: null });
   const [loading, setLoading] = useState(true);
+  const [liveReport, setLiveReport] = useState(null);
+  const [liveTelemetryStatus, setLiveTelemetryStatus] = useState(null);
+  const [liveAlerts, setLiveAlerts] = useState([]);
   const [reportExportBusy, setReportExportBusy] = useState({
     pdf: false,
     json: false,
     xml: false,
   });
   const [exportFeedback, setExportFeedback] = useState({ type: 'idle', message: '' });
-  const [selectedAlert, setSelectedAlert] = useState(null);
   const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
-  const activeAlerts = healthSnapshot.alerts;
-  const fallbackReport = useMemo(() => buildFallbackReport(healthSnapshot), [healthSnapshot]);
-  const displayReport = useMemo(
-    () => buildDisplayReport(backendReports[environment], fallbackReport),
-    [backendReports, environment, fallbackReport]
-  );
-  const displayStatus = healthSnapshot.status;
-  const healthScore = healthSnapshot.healthScore;
-  const summary = healthSnapshot.summary;
-  const skills = mockSkills[environment] || [];
+  const [healthStatus, setHealthStatus] = useState(healthSnapshot.status || 'Unknown');
 
   function triggerDownload(blob, filename) {
     const link = document.createElement('a');
@@ -276,7 +370,8 @@ function App() {
   }
   useEffect(() => {
     loadData();
-
+  }, [environment]);
+  useEffect(() => {
     const timer = setInterval(() => {
       loadData();
       setUpdatedAt(new Date());
@@ -300,19 +395,126 @@ function App() {
       }
     }
 
-    const id = setInterval(pollAgents, 10000);
+    const id = setInterval(pollAgents, 60000);
     pollAgents();
 
     return () => { active = false; clearInterval(id); };
   }, []);
 
+  // Poll simulator metrics for live status updates when presets/telemetry shift.
   useEffect(() => {
-    if (!selectedAlert) return;
-    const stillActive = activeAlerts.find((alert) => alert.id === selectedAlert.id);
-    if (!stillActive) {
+    let active = true;
+
+    async function pollMetrics() {
+      try {
+        const metrics = await fetchSimulatorMetrics();
+        if (!active) return;
+        setLiveTelemetryStatus(deriveTelemetryStatus(metrics));
+      } catch {
+        if (active) setLiveTelemetryStatus(null);
+      }
+    }
+
+    pollMetrics();
+    const id = setInterval(pollMetrics, 5000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadReport() {
+      const backendEnvironment = ENV_TO_BACKEND[environment] || 'production';
+      try {
+        const report = await fetchUserReport(DASHBOARD_SYSTEM_NAME, backendEnvironment);
+        if (!active) return;
+        const mapped = mapBackendReport(report, environment);
+        setLiveReport(mapped);
+        setLiveAlerts(mapReportToAlerts(mapped, environment));
+      } catch {
+        if (active) {
+          setLiveReport(null);
+          setLiveAlerts([]);
+        }
+      }
+    }
+
+    loadReport();
+    const id = setInterval(loadReport, 60000);
+
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [environment]);
+
+  const activeAlerts = liveAlerts;
+  const currentAgents = liveAgents ||  [];
+  const report = liveReport;
+  const skills = mockSkills[environment] || [];
+  const [selectedAlert, setSelectedAlert] = useState(null);
+
+  useEffect(() => {
+    // Auto-open the critical alert in PROD to guide the demo story
+    if (environment === 'PROD') {
+      const critical = (activeAlerts || []).find((a) => a.severity === 'Critical');
+      if (critical) setSelectedAlert(critical);
+    } else {
       setSelectedAlert(null);
     }
-  }, [activeAlerts, selectedAlert]);
+  }, [environment, activeAlerts]);
+
+  // // Derive health status from agents/alerts for demo storytelling
+  // const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
+  // const hasHighAlert = activeAlerts.some((a) => a.severity === 'High');
+  // const hasCriticalAgent = currentAgents.some((ag) => ag.status === 'Critical');
+
+  // if (report?.backendStatus) {
+  //   healthStatus = BACKEND_STATUS_TO_UI[report.backendStatus] || 'Healthy';
+  // } else if (hasCriticalAlert || hasCriticalAgent) {
+  //   healthStatus = 'Critical';
+  // } else if (hasHighAlert || currentAgents.some((ag) => ag.status === 'Degraded' || ag.status === 'Warning')) {
+  //   healthStatus = 'Degraded';
+  // }
+
+  const overallHealthStatus = liveTelemetryStatus
+    ? maxStatus(healthStatus, liveTelemetryStatus)
+    : healthStatus;
+
+  const healthScore = report?.healthScore ?? Math.round(((apiMetrics?.subsystems
+    ? Object.values(apiMetrics.subsystems).reduce((sum, row) => sum + Number(row?.cpu || 0), 0) /
+      Math.max(1, Object.keys(apiMetrics.subsystems).length)
+    : 60)));
+  const summary = report?.summary ?? 'Live backend report unavailable. Ingest events to generate assessment.';
+
+  async function handleOpenReport() {
+    try {
+      const backendEnvironment = ENV_TO_BACKEND[environment] || 'production';
+      const latest = await fetchUserReport(DASHBOARD_SYSTEM_NAME, backendEnvironment);
+      const markdown = latest?.report_markdown || report?.attachedReport || '';
+
+      if (!markdown) {
+        return;
+      }
+
+      const dateTag = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const fileName = `${DASHBOARD_SYSTEM_NAME}-${backendEnvironment}-report-${dateTag}.md`;
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(href);
+    } catch {
+      // Keep UI resilient if backend is temporarily unavailable.
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -321,7 +523,7 @@ function App() {
         environments={environments}
         onEnvironmentChange={setEnvironment}
         lastUpdated={updatedAt}
-        status={displayStatus}
+        overallStatus={overallHealthStatus}
       />
       <PageShell>
         <div className="space-y-10">
@@ -331,8 +533,8 @@ function App() {
             activeAlerts={activeAlerts.length}
             environment={environment}
             summary={summary}
-            scoreSource="live"
-            onOpenReport={openReport}
+            scoreSource={report?.source || 'fallback'}
+            onOpenReport={handleOpenReport}
           />
 
           <section id="agents" className="space-y-6">
@@ -343,23 +545,36 @@ function App() {
               </div>
               <p className="text-sm text-slate-500">Current environment: {environment}</p>
             </div>
-            <AgentGrid agents={subsystems} />
+            <AgentGrid agents={currentAgents} />
           </section>
 
           <AlertsFeed alerts={activeAlerts} onSelectAlert={setSelectedAlert} />
 
           <section className="grid gap-6 lg:grid-cols-12 items-start">
             <div className="lg:col-span-8">
-              <ReportPreview
-                report={displayReport}
-                onDownloadPdf={downloadPdfReport}
-                onDownloadJson={downloadSimulatorJson}
-                onDownloadXml={downloadSimulatorXml}
-                exportStatus={{
-                  busy: reportExportBusy,
-                  type: exportFeedback.type,
-                  message: exportFeedback.message,
-                }}
+              <ReportPreview report={report || {
+                healthScore,
+                result: `${environment} PENDING`,
+                summary,
+                areasOfConcern: [],
+                suggestedImprovements: [],
+                reasoningItems: [],
+                correlatedEvents: [],
+                anomalyItems: [],
+                attachedReport: '',
+              }}
+              onDownloadPdf={downloadPdfReport}
+              onDownloadJson={downloadSimulatorJson}
+              onDownloadXml={downloadSimulatorXml}
+              exportStatus={{ busy: reportExportBusy }}
+              statusText={exportFeedback.message}
+              statusTone={
+                exportFeedback.type === 'error'
+                  ? 'text-rose-600'
+                  : exportFeedback.type === 'success'
+                    ? 'text-emerald-600'
+                    : 'text-slate-500'
+              }
               />
             </div>
             <div className="lg:col-span-4">

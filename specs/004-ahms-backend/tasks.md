@@ -14,9 +14,11 @@
 
 The dashboard health score currently appears static and does not update when dummy server or simulator metrics change. This task list focuses on:
 
-1. **Verification**: Confirm backend ingestion, reasoning, and reporting are working
-2. **Diagnosis**: Identify where the pipeline breaks (ingestion, reasoning, persistence, or frontend fetch)
-3. **Fix**: Ensure the health score is dynamically calculated and displayed
+- [x] T015 [US2] Prototype reasoning engine in `src/services/reasoning.py` that returns: objective issue, reasoning, suggestions, confidence
+- [x] T016 [US2] Implement correlation engine `src/services/correlation.py` to link events across sources
+- [x] T017 [US2] Implement anomaly detectors in `src/services/anomaly.py` (statistical + rule-based hooks)
+- [x] T018 [US2] Integrate reasoning outputs into health reports and persist in `src/models/health_report.py`
+- [x] T019 [US2] Add tests for reasoning, correlation, and anomaly detection in `tests/unit/`
 
 **Expected Data Flow**:
 ```
@@ -35,11 +37,17 @@ Frontend GET /api/reports/latest
 Dashboard displays updated score
 ```
 
----
+- [x] T020 [US3] Implement action orchestration skeleton in `src/services/orchestrator.py` (approve/execute/rollback)
+- [x] T021 [US3] Implement governance rules and approvals storage in `src/services/governance.py`
+- [x] T022 [US3] Implement audit ledger writes for all decisions in `src/services/audit.py`
+- [x] T023 [US3] Expose CI evaluation API `POST /api/ci/evaluate` in `src/api/routes.py` returning `pass|warn|fail` with machine-readable rationale
+- [x] T024 [P] [US3] Add integration tests for orchestration and CI evaluation in `tests/integration/`
 
 ## Phase 1: Verification & Instrumentation
 
-**Purpose**: Verify each stage of the pipeline is being called and producing output
+- [x] T025 Create `specs/004-ahms-backend/contracts/report-api.md` hook contract and ensure routes are documented
+- [x] T026 Write `specs/004-ahms-backend/quickstart.md` with run instructions and example CI call
+- [x] T027 Security review and add SAST/secret-scan to CI
 
 **Success Criteria**: All stages log their outputs and can be traced end-to-end
 

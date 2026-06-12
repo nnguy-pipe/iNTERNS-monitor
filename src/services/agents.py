@@ -254,6 +254,54 @@ class CICDAgent(BaseAgent):
         return {"status": status, "latest_finding": finding, "last_checked": ts}
 
 
+class UserAgent(BaseAgent):
+    """Checks active user load and concurrency. Reads from infrastructure simulator daemon."""
+
+    def check(self, db) -> Dict[str, Any]:
+        ts = datetime.utcnow().isoformat()
+
+        try:
+            from src.simulator_bridge import get_simulator_client
+            client = get_simulator_client()
+            if client:
+                metrics = client.get_current_metrics()
+                if metrics and "subsystems" in metrics:
+                    subsystems = metrics.get("subsystems", {})
+                    # Aggregate active users across all subsystems
+                    active_users = {}
+                    total_users = 0
+                    
+                    for subsystem_name, subsystem_metrics in subsystems.items():
+                        users = subsystem_metrics.get("active_users", 0)
+                        active_users[subsystem_name] = users
+                        total_users += users
+                    
+                    # Determine status based on active users
+                    if total_users < 10:
+                        status = "healthy"
+                        score = 0.95
+                    elif total_users < 50:
+                        status = "warning"
+                        score = 0.7
+                    else:
+                        status = "critical"
+                        score = 0.3
+                    
+                    detail = ", ".join(f"{k}={v}" for k, v in active_users.items())
+                    finding = f"Active users: {total_users} total [{detail}]"
+                    self._persist(db, status=status, health_score=score, primary_issue=finding)
+                    return {"status": status, "latest_finding": finding, "last_checked": ts}
+        except Exception:
+            pass
+
+        # Fallback: no user data available
+        status = "unknown"
+        score = 0.5
+        finding = "Unable to determine active users"
+        self._persist(db, status=status, health_score=score, primary_issue=finding)
+        return {"status": status, "latest_finding": finding, "last_checked": ts}
+
+
 class APIAgent(BaseAgent):
     """Measures latency and availability of a target API endpoint."""
 
@@ -291,6 +339,7 @@ def run_all_agents(db) -> List[Dict[str, Any]]:
         InfrastructureAgent(system_name="infrastructure"),
         MemoryAgent(system_name="memory"),
         CPUAgent(system_name="cpu"),
+        UserAgent(system_name="users"),
         CICDAgent(system_name="ci"),
         APIAgent(system_name="api"),
     ]
