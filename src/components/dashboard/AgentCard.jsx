@@ -48,11 +48,11 @@ function getHealthStatus({ status, cpu, ram, event_spike }) {
   }
 
   // You can tune these thresholds later.
-  if (cpuValue >= 85 || ramValue >= 1000 || eventSpikeValue >= 5) {
+  if (cpuValue >= 85 || ramValue >= 4000 || eventSpikeValue >= 5) {
     return 'Critical';
   }
 
-  if (cpuValue >= 70 || ramValue >= 800 || eventSpikeValue > 0) {
+  if (cpuValue >= 60 || ramValue >= 2000 || eventSpikeValue > 0) {
     return 'Warning';
   }
 
