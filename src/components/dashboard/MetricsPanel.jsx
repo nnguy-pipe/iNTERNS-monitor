@@ -105,11 +105,7 @@ function MetricsPanel({ environment }) {
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Live metrics</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Real-time system telemetry</h2>
         </div>
-        <p className="text-sm text-slate-500">
-          {dataSource === 'live'
-            ? 'CPU & memory sourced from infrastructure simulator daemon.'
-            : 'Metrics update every few seconds with simulated values.'}
-        </p>
+        <p className="text-sm text-slate-500">Metrics update every few seconds with simulated values.</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

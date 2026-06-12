@@ -57,8 +57,7 @@ function App() {
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
   const [liveAgents, setLiveAgents] = useState(null); // null = not yet loaded
-
-  //from API
+   //from API
   const [apiHealth, setApiHealth] = useState(null);
   const [apiMetrics, setApiMetrics] = useState(null);
   const [health, setHealth] = useState(null);
@@ -89,6 +88,7 @@ function App() {
 
     loadData();
   }, [environment]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setUpdatedAt(new Date());
@@ -112,7 +112,7 @@ function App() {
       }
     }
 
-    const id = setInterval(pollAgents, 10000);
+    const id = setInterval(pollAgents, 60000);
     pollAgents();
 
     return () => { active = false; clearInterval(id); };
@@ -124,15 +124,15 @@ function App() {
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
 
-  // useEffect(() => {
-  //   // Auto-open the critical alert in PROD to guide the demo story
-  //   if (environment === 'PROD') {
-  //     const critical = (mockAlerts.PROD || []).find((a) => a.severity === 'Critical');
-  //     if (critical) setSelectedAlert(critical);
-  //   } else {
-  //     setSelectedAlert(null);
-  //   }
-  // }, [environment]);
+  useEffect(() => {
+    // Auto-open the critical alert in PROD to guide the demo story
+    if (environment === 'PROD') {
+      const critical = (mockAlerts.PROD || []).find((a) => a.severity === 'Critical');
+      if (critical) setSelectedAlert(critical);
+    } else {
+      setSelectedAlert(null);
+    }
+  }, [environment]);
 
   // Derive health status from agents/alerts for demo storytelling
   const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
@@ -173,7 +173,7 @@ function App() {
               </div>
               <p className="text-sm text-slate-500">Current environment: {environment}</p>
             </div>
-            <AgentGrid agents={subsystems} />
+            <AgentGrid agents={currentAgents} />
           </section>
 
           <AlertsFeed alerts={activeAlerts} onSelectAlert={setSelectedAlert} />
