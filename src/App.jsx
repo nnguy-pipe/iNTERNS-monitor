@@ -242,8 +242,10 @@ function App() {
         setLoading(false);
       }
   }
+
   useEffect(() => {
     loadData();
+  }, []);
 
   useEffect(() => {
     let active = true;
