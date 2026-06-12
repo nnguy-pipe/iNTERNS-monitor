@@ -2,4 +2,13 @@
 node_modules
 .env.*
 *.pyc
-/src/__pycache__/*
+
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache files
+__pycache__/
+*.py[cod]
