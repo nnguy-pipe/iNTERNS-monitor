@@ -9,25 +9,45 @@ function HealthSummary({
   scoreSource = 'backend',
   onOpenReport,
 }) {
-  // Generate contextual health label
-  const getHealthLabel = () => {
-    if (score >= 85) return 'Running smoothly';
-    if (score >= 70) return 'Mostly healthy with caution';
-    if (score >= 50) return 'Degraded — attention needed';
-    return 'Critical — immediate action required';
+  const numericScore = Number(score) || 0;
+
+  // Keep visual state consistent with score thresholds.
+  const getVisualStatus = () => {
+    if (numericScore >= 85) return 'Healthy';
+    if (numericScore >= 70) return 'Warning';
+    if (numericScore >= 50) return 'Degraded';
+    return 'Critical';
   };
 
-  // Determine progress bar color based on status
+  const getHealthLabel = () => {
+    if (numericScore >= 85) return 'Running smoothly';
+    if (numericScore >= 70) return 'Mostly healthy with caution';
+    if (numericScore >= 50) return 'Degraded - attention needed';
+    return 'Critical - immediate action required';
+  };
+
   const getProgressColor = () => {
-    if (status === 'Healthy') return 'bg-emerald-500';
-    if (status === 'Degraded') return 'bg-amber-500';
+    const visualStatus = getVisualStatus();
+    if (visualStatus === 'Healthy') return 'bg-emerald-500';
+    if (visualStatus === 'Warning' || visualStatus === 'Degraded') return 'bg-amber-500';
     return 'bg-red-500';
   };
 
-  // Determine alert accent color
   const getAlertAccent = () => {
     return activeAlerts > 0 ? 'text-amber-600' : 'text-slate-700';
   };
+
+  const fallbackSummary =
+    activeAlerts > 0
+      ? `${activeAlerts} active alert${activeAlerts === 1 ? '' : 's'} detected in live telemetry.`
+      : 'Live telemetry is within expected operating thresholds.';
+
+  const displayStatus = getVisualStatus();
+  const hasContradictorySummary =
+    displayStatus === 'Healthy' &&
+    typeof summary === 'string' &&
+    /(error|fail|critical|degraded|incident)/i.test(summary);
+  const displaySummary = hasContradictorySummary ? fallbackSummary : (summary || fallbackSummary);
 
   return (
     <section
@@ -44,7 +64,7 @@ function HealthSummary({
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{environment} Health</p>
             <h1 id="health-hero-title" className="mt-2 flex items-center gap-3">
-              <StatusBadge status={status} />
+              <StatusBadge status={displayStatus} />
             </h1>
           </div>
 
@@ -52,7 +72,7 @@ function HealthSummary({
             <div className="flex flex-col items-end">
               <p className="text-sm text-slate-500">Health score</p>
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-6xl font-extrabold text-slate-900 leading-none">{score}</span>
+                <span className="text-6xl font-extrabold text-slate-900 leading-none">{Math.round(numericScore)}</span>
                 <span className="text-sm font-medium text-slate-500">/100</span>
               </div>
               <p className="mt-2 text-xs text-slate-600">{getHealthLabel()}</p>
@@ -66,14 +86,14 @@ function HealthSummary({
               <div className="mt-3 w-24 h-1 bg-slate-200 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${getProgressColor()}`}
-                  style={{ width: `${Math.min(score, 100)}%` }}
+                  style={{ width: `${Math.min(Math.max(numericScore, 0), 100)}%` }}
                 />
               </div>
             </div>
           </div>
         </div>
 
-        <p className="mt-4 max-w-3xl text-slate-700 text-lg leading-7">{summary}</p>
+        <p className="mt-4 max-w-3xl text-slate-700 text-lg leading-7">{displaySummary}</p>
       </div>
 
       <aside className="mt-6 lg:mt-0 lg:ml-6">

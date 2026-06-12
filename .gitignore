@@ -2,9 +2,16 @@
 node_modules
 .env.*
 *.pyc
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache files
 src/__pycache__/*
 src/api/__pycache__/*
 src/models/__pycache__/*
 src/services/__pycache__/*
 src/stores/__pycache__/*
-ahms.db
+
