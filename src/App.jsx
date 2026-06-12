@@ -86,6 +86,10 @@ function buildDisplayReport(backendReport, fallbackReport) {
   if (!backendReport) return fallbackReport;
 
   const status = backendReport.status || 'unknown';
+  const rawScore = Number(backendReport.health_score);
+  const normalizedScore = Number.isFinite(rawScore)
+    ? (rawScore <= 1 ? rawScore * 100 : rawScore)
+    : fallbackReport.healthScore;
   const primaryIssue =
     typeof backendReport.primary_issue === 'string' && backendReport.primary_issue.trim()
       ? backendReport.primary_issue.trim()
@@ -95,7 +99,7 @@ function buildDisplayReport(backendReport, fallbackReport) {
     : ['Continue monitoring the persisted report.'];
 
   return {
-    healthScore: Math.round(Number(backendReport.health_score ?? fallbackReport.healthScore)),
+    healthScore: Math.round(normalizedScore),
     result: REPORT_RESULT[status] || REPORT_RESULT.unknown,
     summary:
       status === 'healthy'

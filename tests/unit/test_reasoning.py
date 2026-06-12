@@ -30,6 +30,24 @@ def test_health_score_with_errors():
 
 
 @pytest.mark.unit
+def test_health_score_with_high_subsystem_cpu():
+    """Simulator subsystem metrics should penalize health score under high CPU load."""
+    events = [
+        {
+            "type": "metric",
+            "name": "simulator_subsystems",
+            "timestamp": datetime.utcnow(),
+            "subsystems": {
+                "web": {"cpu": 92, "ram": 500, "active_users": 80},
+                "app": {"cpu": 88, "ram": 400, "active_users": 120},
+            },
+        }
+    ]
+    score = ReasoningEngine.compute_health_score(events)
+    assert score < 0.25, "High subsystem CPU should produce a very low health score"
+
+
+@pytest.mark.unit
 def test_identify_primary_issue():
     """Test that primary issue is identified correctly."""
     events = [

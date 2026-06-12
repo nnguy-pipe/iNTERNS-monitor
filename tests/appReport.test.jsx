@@ -24,7 +24,7 @@ const persistedReport = {
   system_name: 'iMonitor',
   environment: 'production',
   status: 'warning',
-  health_score: 73,
+  health_score: 0.73,
   primary_issue: 'Database latency is elevated',
   suggestions: ['Review query load', 'Check for storage contention'],
   created_at: '2026-06-12T11:30:00.000Z',
@@ -238,6 +238,7 @@ describe('report exports in the dashboard', () => {
 
     const summaryMatches = await screen.findAllByText(/database latency is elevated/i);
     expect(summaryMatches.length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText('73').length).toBeGreaterThan(0);
     expect(screen.getByText(/Review query load/i)).toBeTruthy();
     expect(screen.getByText(/Source: Backend/i)).toBeTruthy();
   });

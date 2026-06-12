@@ -43,9 +43,15 @@ export async function fetchAgentChecks() {
  */
 export async function fetchLatestReport(systemName, environment) {
   const backendEnv = toBackendEnvironment(environment);
+  const params = new URLSearchParams({
+    system_name: systemName,
+    environment: backendEnv,
+    _ts: String(Date.now()),
+  });
   const res = await fetch(
-    `${API_BASE}/api/reports/latest?system_name=${encodeURIComponent(systemName)}&environment=${encodeURIComponent(backendEnv)}`,
+    `${API_BASE}/api/reports/latest?${params.toString()}`,
     {
+      cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     },
   );
