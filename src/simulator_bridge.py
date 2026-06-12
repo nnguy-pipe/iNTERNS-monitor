@@ -197,7 +197,7 @@ class SimulatorClient:
         Returns:
             Event payload ready for /api/events POST endpoint:
             {
-                "source": "infrastructure_simulator",
+                "source": "observability",
                 "source_id": str,
                 "event_type": "metric",
                 "timestamp": str (ISO 8601),

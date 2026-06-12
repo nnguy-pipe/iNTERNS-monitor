@@ -7,6 +7,10 @@
 
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+function toBackendEnvironment(environment) {
+  return environment === 'PROD' ? 'production' : 'ci';
+}
+
 /**
  * GET /api/simulator/metrics
  * Returns current CPU/RAM per subsystem from the running daemon.

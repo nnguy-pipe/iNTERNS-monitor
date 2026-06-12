@@ -219,6 +219,8 @@ function App() {
   const [apiMetrics, setApiMetrics] = useState(null);
   const [health, setHealth] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
+  const [backendReports, setBackendReports] = useState({ CI: null, PROD: null });
+  const [scoreSources, setScoreSources] = useState({ CI: 'fallback', PROD: 'fallback' });
   const [loading, setLoading] = useState(true);
   const [liveReport, setLiveReport] = useState(null);
   const [liveTelemetryStatus, setLiveTelemetryStatus] = useState(null);
@@ -336,21 +338,34 @@ function App() {
   async function loadData() {
       setLoading(true);
 
-      const [healthRes, metricsRes] = await Promise.all([
-        // update to not be hardcoded, but for demo purposes this is fine
-        fetch("http://localhost:8000/api/simulator/health").then(r => r.json()),
-        fetch("http://localhost:8000/api/simulator/metrics").then(r => r.json())
-      ]);
+      try {
+        const [healthRes, metricsRes] = await Promise.all([
+          fetch('http://localhost:8000/api/simulator/health').then((r) => r.json()),
+          fetch('http://localhost:8000/api/simulator/metrics').then((r) => r.json()),
+        ]);
 
-      setHealth(healthRes);
-      setApiMetrics(metricsRes);
-      // Convert subsystems object → array
-      const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
-        ([name, stats]) => ({ name, ...stats })
-      );
+        setHealth(healthRes);
+        setApiMetrics(metricsRes);
 
-      setSubsystems(subsystemAgents);
-      setLoading(false);
+        // Convert subsystems object -> array
+        const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
+          ([name, stats]) => ({ name, ...stats }),
+        );
+        setSubsystems(subsystemAgents);
+
+        try {
+          await ingestSimulatorMetrics(SCORE_SYSTEM_NAME, environment);
+          const latestReport = await fetchLatestReport(SCORE_SYSTEM_NAME, environment);
+          setBackendReports((prev) => ({ ...prev, [environment]: latestReport }));
+          setScoreSources((prev) => ({ ...prev, [environment]: 'backend' }));
+        } catch {
+          if (!backendReports[environment]) {
+            setScoreSources((prev) => ({ ...prev, [environment]: 'fallback' }));
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
   }
   useEffect(() => {
     loadData();
@@ -362,7 +377,7 @@ function App() {
     }, pollingInterval);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [environment]);
 
   // Poll backend agent checks; fall back silently to mock data when unavailable
   useEffect(() => {

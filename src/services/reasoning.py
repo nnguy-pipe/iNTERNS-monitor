@@ -6,6 +6,10 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
+# Configure debug logging for pipeline tracing
+_debug_logger = logging.getLogger(f"{__name__}.debug")
+_debug_logger.setLevel(logging.DEBUG)
+
 
 class ReasoningEngine:
     """
@@ -43,11 +47,15 @@ class ReasoningEngine:
         - Check metric values against thresholds → penalty
         - Consider recency (recent events weighted higher)
         """
+        _debug_logger.debug(f"[REASONING] Computing health score from {len(events)} events")
+        
         if not events:
+            _debug_logger.warning(f"[REASONING] No events provided, returning default score 0.5")
             return 0.5  # Unknown state
         
         score = 1.0
         now = datetime.utcnow()
+        penalties_applied = []
         
         for event in events:
             # Weight recent events higher
@@ -61,28 +69,42 @@ class ReasoningEngine:
             if event_type == "log":
                 level = event.get("level", "").lower()
                 if level == "error":
-                    score -= 0.3 * recency_weight
+                    penalty = 0.3 * recency_weight
+                    score -= penalty
+                    penalties_applied.append(f"error_log({penalty:.3f})")
                 elif level == "warning":
-                    score -= 0.15 * recency_weight
+                    penalty = 0.15 * recency_weight
+                    score -= penalty
+                    penalties_applied.append(f"warning_log({penalty:.3f})")
             
             elif event_type == "metric":
                 value = float(event.get("value", 0))
                 # Simple thresholds for MVP
                 if value > 1000:  # Abnormally high
-                    score -= 0.2 * recency_weight
+                    penalty = 0.2 * recency_weight
+                    score -= penalty
+                    penalties_applied.append(f"high_metric({value:.1f},{penalty:.3f})")
                 elif value < 0:  # Invalid
-                    score -= 0.1 * recency_weight
+                    penalty = 0.1 * recency_weight
+                    score -= penalty
+                    penalties_applied.append(f"invalid_metric({penalty:.3f})")
             
             elif event_type == "trace":
                 duration = float(event.get("duration_ms", 0))
                 status = event.get("status", "").lower()
                 if status == "error":
-                    score -= 0.25 * recency_weight
+                    penalty = 0.25 * recency_weight
+                    score -= penalty
+                    penalties_applied.append(f"error_trace({penalty:.3f})")
                 elif duration > 5000:  # >5s duration
-                    score -= 0.1 * recency_weight
+                    penalty = 0.1 * recency_weight
+                    score -= penalty
+                    penalties_applied.append(f"slow_trace({duration}ms,{penalty:.3f})")
         
         # Clamp to 0.0-1.0
-        return max(0.0, min(1.0, score))
+        final_score = max(0.0, min(1.0, score))
+        _debug_logger.debug(f"[REASONING] Health score computed: {final_score:.3f} (penalties: {', '.join(penalties_applied)})")
+        return final_score
 
     @staticmethod
     def identify_primary_issue(events: List[Dict[str, Any]]) -> Optional[str]:
@@ -91,27 +113,37 @@ class ReasoningEngine:
         
         Objective finding: "What is the main problem detected?"
         """
+        _debug_logger.debug(f"[REASONING] Identifying primary issue from {len(events)} events")
+        
         if not events:
+            _debug_logger.debug(f"[REASONING] No events to identify issue from")
             return None
         
         # Look for error logs first (highest priority)
         error_logs = [e for e in events if e.get("type") == "log" and e.get("level") == "error"]
         if error_logs:
-            return f"Error detected: {error_logs[0].get('message', 'Unknown error')}"
+            issue = f"Error detected: {error_logs[0].get('message', 'Unknown error')}"
+            _debug_logger.debug(f"[REASONING] Primary issue identified: {issue}")
+            return issue
         
         # Check for high-latency traces
         slow_traces = [e for e in events if e.get("type") == "trace" and float(e.get("duration_ms", 0)) > 5000]
         if slow_traces:
             duration = slow_traces[0].get("duration_ms")
-            return f"High latency detected: {duration}ms (threshold: 5000ms)"
+            issue = f"High latency detected: {duration}ms (threshold: 5000ms)"
+            _debug_logger.debug(f"[REASONING] Primary issue identified: {issue}")
+            return issue
         
         # Check for abnormal metrics
         abnormal_metrics = [e for e in events if e.get("type") == "metric" and float(e.get("value", 0)) > 1000]
         if abnormal_metrics:
             metric_name = abnormal_metrics[0].get("name")
             value = abnormal_metrics[0].get("value")
-            return f"Abnormal metric detected: {metric_name}={value}"
+            issue = f"Abnormal metric detected: {metric_name}={value}"
+            _debug_logger.debug(f"[REASONING] Primary issue identified: {issue}")
+            return issue
         
+        _debug_logger.debug(f"[REASONING] No issues identified")
         return None
 
     @staticmethod

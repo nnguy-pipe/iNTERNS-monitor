@@ -1,0 +1,255 @@
+2026-06-11 16:29:01,513 - __main__ - INFO - 
+================================================================================
+2026-06-11 16:29:01,514 - __main__ - INFO - HEALTH SCORE PIPELINE VERIFICATION
+2026-06-11 16:29:01,514 - __main__ - INFO - ================================================================================
+
+2026-06-11 16:29:01,514 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,514 - __main__ - INFO - PHASE 1: Get Baseline Health Report
+2026-06-11 16:29:01,514 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,515 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:29:01,537 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/reports/latest?system_name=test-service&environment=ci HTTP/1.1" 404 44
+2026-06-11 16:29:01,537 - __main__ - INFO - [FETCH_BASELINE] No baseline report found (expected for first run)
+2026-06-11 16:29:01,537 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,537 - __main__ - INFO - PHASE 2: Send Test Metric
+2026-06-11 16:29:01,537 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,538 - __main__ - INFO - [SEND_METRIC] Sending test metric payload
+2026-06-11 16:29:01,538 - __main__ - DEBUG -   Data: {
+  "source": "observability",
+  "source_id": "test-metric-1781224141.53803",
+  "event_type": "metric",
+  "timestamp": "2026-06-11T20:29:01.538123",
+  "environment": "ci",
+  "system_name": "test-service",
+  "data": {
+    "metric_name": "cpu_usage_percent",
+    "value": 45.5,
+    "labels": {
+      "host": "test-host",
+      "pod": "test-pod"
+    }
+  }
+}
+2026-06-11 16:29:01,538 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:29:01,574 - urllib3.connectionpool - DEBUG - http://localhost:8000 "POST /api/events HTTP/1.1" 200 112
+2026-06-11 16:29:01,574 - __main__ - INFO - [SEND_METRIC] Metric ingested successfully: event_id=b6bd66ed-8efb-424f-9ad6-e07cbdb1148b
+2026-06-11 16:29:01,574 - __main__ - DEBUG -   Data: {
+  "status": "ingested",
+  "event_id": "b6bd66ed-8efb-424f-9ad6-e07cbdb1148b",
+  "timestamp": "2026-06-11T20:29:01.538123"
+}
+2026-06-11 16:29:01,574 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,574 - __main__ - INFO - PHASE 3: Verify Ingestion
+2026-06-11 16:29:01,575 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,575 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:29:01,579 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/events?system_name=test-service&environment=ci&limit=10 HTTP/1.1" 200 204
+2026-06-11 16:29:01,580 - __main__ - INFO - [VERIFY_INGESTION] Events retrieved: count=1
+2026-06-11 16:29:01,580 - __main__ - DEBUG -   Data: {
+  "count": 1,
+  "events": [
+    {
+      "id": "b6bd66ed-8efb-424f-9ad6-e07cbdb1148b",
+      "source": "observability",
+      "event_type": "metric",
+      "timestamp": "2026-06-11T20:29:01.538123",
+      "environment": "ci",
+      "system_name": "test-service"
+    }
+  ]
+}
+2026-06-11 16:29:01,580 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,580 - __main__ - INFO - PHASE 4: Check Final Health Report
+2026-06-11 16:29:01,580 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,581 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:29:01,584 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/reports/latest?system_name=test-service&environment=ci HTTP/1.1" 404 44
+2026-06-11 16:29:01,584 - __main__ - INFO - [FETCH_FINAL] Error: HTTP 404
+2026-06-11 16:29:01,585 - __main__ - INFO - 
+================================================================================
+2026-06-11 16:29:01,585 - __main__ - INFO - VERIFICATION SUMMARY
+2026-06-11 16:29:01,585 - __main__ - INFO - ================================================================================
+2026-06-11 16:29:01,585 - __main__ - INFO - Baseline Score: None
+2026-06-11 16:29:01,585 - __main__ - INFO - Final Score: None
+2026-06-11 16:29:01,585 - __main__ - INFO - Overall Status: ❌ FAIL
+2026-06-11 16:29:01,585 - __main__ - INFO - Phases:
+2026-06-11 16:29:01,585 - __main__ - INFO -   ✅ baseline
+2026-06-11 16:29:01,585 - __main__ - INFO -   ✅ send_metric
+2026-06-11 16:29:01,585 - __main__ - INFO -   ✅ verify_ingestion
+2026-06-11 16:29:01,585 - __main__ - INFO -   ❌ final_report
+2026-06-11 16:29:01,585 - __main__ - INFO - ================================================================================
+
+2026-06-11 16:29:01,585 - __main__ - INFO - Trace log saved to trace_test-service_ci.json
+2026-06-11 16:30:34,964 - __main__ - INFO - 
+================================================================================
+2026-06-11 16:30:34,964 - __main__ - INFO - HEALTH SCORE PIPELINE VERIFICATION
+2026-06-11 16:30:34,964 - __main__ - INFO - ================================================================================
+
+2026-06-11 16:30:34,964 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:34,964 - __main__ - INFO - PHASE 1: Get Baseline Health Report
+2026-06-11 16:30:34,964 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:34,965 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:30:34,977 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/reports/latest?system_name=test-service-v2&environment=ci HTTP/1.1" 404 44
+2026-06-11 16:30:34,977 - __main__ - INFO - [FETCH_BASELINE] No baseline report found (expected for first run)
+2026-06-11 16:30:34,977 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:34,977 - __main__ - INFO - PHASE 2: Send Test Metric
+2026-06-11 16:30:34,977 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:34,978 - __main__ - INFO - [SEND_METRIC] Sending test metric payload
+2026-06-11 16:30:34,978 - __main__ - DEBUG -   Data: {
+  "source": "observability",
+  "source_id": "test-metric-1781224234.97795",
+  "event_type": "metric",
+  "timestamp": "2026-06-11T20:30:34.977996",
+  "environment": "ci",
+  "system_name": "test-service-v2",
+  "data": {
+    "metric_name": "cpu_usage_percent",
+    "value": 45.5,
+    "labels": {
+      "host": "test-host",
+      "pod": "test-pod"
+    }
+  }
+}
+2026-06-11 16:30:34,978 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:30:35,019 - urllib3.connectionpool - DEBUG - http://localhost:8000 "POST /api/events HTTP/1.1" 200 112
+2026-06-11 16:30:35,019 - __main__ - INFO - [SEND_METRIC] Metric ingested successfully: event_id=f18b6b6e-7546-48b5-a61c-83adb041002c
+2026-06-11 16:30:35,019 - __main__ - DEBUG -   Data: {
+  "status": "ingested",
+  "event_id": "f18b6b6e-7546-48b5-a61c-83adb041002c",
+  "timestamp": "2026-06-11T20:30:34.977996"
+}
+2026-06-11 16:30:35,019 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:35,019 - __main__ - INFO - PHASE 3: Verify Ingestion
+2026-06-11 16:30:35,019 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:35,020 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:30:35,022 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/events?system_name=test-service-v2&environment=ci&limit=10 HTTP/1.1" 200 207
+2026-06-11 16:30:35,022 - __main__ - INFO - [VERIFY_INGESTION] Events retrieved: count=1
+2026-06-11 16:30:35,023 - __main__ - DEBUG -   Data: {
+  "count": 1,
+  "events": [
+    {
+      "id": "f18b6b6e-7546-48b5-a61c-83adb041002c",
+      "source": "observability",
+      "event_type": "metric",
+      "timestamp": "2026-06-11T20:30:34.977996",
+      "environment": "ci",
+      "system_name": "test-service-v2"
+    }
+  ]
+}
+2026-06-11 16:30:35,023 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:35,023 - __main__ - INFO - PHASE 4: Check Final Health Report
+2026-06-11 16:30:35,023 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:35,023 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:30:35,026 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/reports/latest?system_name=test-service-v2&environment=ci HTTP/1.1" 200 207
+2026-06-11 16:30:35,026 - __main__ - INFO - [FETCH_FINAL] Final report retrieved: score=1.0, changed=False
+2026-06-11 16:30:35,026 - __main__ - DEBUG -   Data: {
+  "id": "3d25c638-10cb-4353-83a3-4fce3ba6a6fa",
+  "system_name": "test-service-v2",
+  "environment": "ci",
+  "status": "healthy",
+  "health_score": 1.0,
+  "primary_issue": null,
+  "suggestions": [],
+  "created_at": "2026-06-11T20:30:35"
+}
+2026-06-11 16:30:35,026 - __main__ - INFO - 
+================================================================================
+2026-06-11 16:30:35,026 - __main__ - INFO - VERIFICATION SUMMARY
+2026-06-11 16:30:35,026 - __main__ - INFO - ================================================================================
+2026-06-11 16:30:35,026 - __main__ - INFO - Baseline Score: None
+2026-06-11 16:30:35,026 - __main__ - INFO - Final Score: 1.0
+2026-06-11 16:30:35,026 - __main__ - INFO - Overall Status: ✅ PASS
+2026-06-11 16:30:35,026 - __main__ - INFO - Phases:
+2026-06-11 16:30:35,026 - __main__ - INFO -   ✅ baseline
+2026-06-11 16:30:35,026 - __main__ - INFO -   ✅ send_metric
+2026-06-11 16:30:35,026 - __main__ - INFO -   ✅ verify_ingestion
+2026-06-11 16:30:35,026 - __main__ - INFO -   ✅ final_report
+2026-06-11 16:30:35,026 - __main__ - INFO - ================================================================================
+
+2026-06-11 16:30:35,026 - __main__ - INFO - Trace log saved to trace_test-service-v2_ci.json
+2026-06-11 16:35:48,153 - __main__ - INFO - 
+================================================================================
+2026-06-11 16:35:48,153 - __main__ - INFO - HEALTH SCORE PIPELINE VERIFICATION
+2026-06-11 16:35:48,153 - __main__ - INFO - ================================================================================
+
+2026-06-11 16:35:48,154 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,154 - __main__ - INFO - PHASE 1: Get Baseline Health Report
+2026-06-11 16:35:48,154 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,154 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:35:48,168 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/reports/latest?system_name=test-service&environment=ci HTTP/1.1" 404 44
+2026-06-11 16:35:48,169 - __main__ - INFO - [FETCH_BASELINE] No baseline report found (expected for first run)
+2026-06-11 16:35:48,169 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,170 - __main__ - INFO - PHASE 2: Send Test Metric
+2026-06-11 16:35:48,170 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,170 - __main__ - INFO - [SEND_METRIC] Sending test metric payload
+2026-06-11 16:35:48,170 - __main__ - DEBUG -   Data: {
+  "source": "observability",
+  "source_id": "test-metric-1781224548.170477",
+  "event_type": "metric",
+  "timestamp": "2026-06-11T20:35:48.170562",
+  "environment": "ci",
+  "system_name": "test-service",
+  "data": {
+    "metric_name": "cpu_usage_percent",
+    "value": 45.5,
+    "labels": {
+      "host": "test-host",
+      "pod": "test-pod"
+    }
+  }
+}
+2026-06-11 16:35:48,172 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:35:48,207 - urllib3.connectionpool - DEBUG - http://localhost:8000 "POST /api/events HTTP/1.1" 200 112
+2026-06-11 16:35:48,208 - __main__ - INFO - [SEND_METRIC] Metric ingested successfully: event_id=462be4ac-f115-4dac-969c-6b6014556d61
+2026-06-11 16:35:48,208 - __main__ - DEBUG -   Data: {
+  "status": "ingested",
+  "event_id": "462be4ac-f115-4dac-969c-6b6014556d61",
+  "timestamp": "2026-06-11T20:35:48.170562"
+}
+2026-06-11 16:35:48,208 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,208 - __main__ - INFO - PHASE 3: Verify Ingestion
+2026-06-11 16:35:48,208 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,208 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:35:48,212 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/events?system_name=test-service&environment=ci&limit=10 HTTP/1.1" 200 386
+2026-06-11 16:35:48,213 - __main__ - INFO - [VERIFY_INGESTION] Events retrieved: count=2
+2026-06-11 16:35:48,213 - __main__ - DEBUG -   Data: {
+  "count": 2,
+  "events": [
+    {
+      "id": "462be4ac-f115-4dac-969c-6b6014556d61",
+      "source": "observability",
+      "event_type": "metric",
+      "timestamp": "2026-06-11T20:35:48.170562",
+      "environment": "ci",
+      "system_name": "test-service"
+    },
+    {
+      "id": "b6bd66ed-8efb-424f-9ad6-e07cbdb1148b",
+      "source": "observability",
+      "event_type": "metric",
+      "timestamp": "2026-06-11T20:29:01.538123",
+      "environment": "ci",
+      "system_name": "test-service"
+    }
+  ]
+}
+2026-06-11 16:35:48,213 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,213 - __main__ - INFO - PHASE 4: Check Final Health Report
+2026-06-11 16:35:48,213 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,213 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:8000
+2026-06-11 16:35:48,217 - urllib3.connectionpool - DEBUG - http://localhost:8000 "GET /api/reports/latest?system_name=test-service&environment=ci HTTP/1.1" 404 44
+2026-06-11 16:35:48,217 - __main__ - INFO - [FETCH_FINAL] Error: HTTP 404
+2026-06-11 16:35:48,218 - __main__ - INFO - 
+================================================================================
+2026-06-11 16:35:48,218 - __main__ - INFO - VERIFICATION SUMMARY
+2026-06-11 16:35:48,218 - __main__ - INFO - ================================================================================
+2026-06-11 16:35:48,218 - __main__ - INFO - Baseline Score: None
+2026-06-11 16:35:48,218 - __main__ - INFO - Final Score: None
+2026-06-11 16:35:48,218 - __main__ - INFO - Overall Status: ❌ FAIL
+2026-06-11 16:35:48,218 - __main__ - INFO - Phases:
+2026-06-11 16:35:48,218 - __main__ - INFO -   ✅ baseline
+2026-06-11 16:35:48,218 - __main__ - INFO -   ✅ send_metric
+2026-06-11 16:35:48,218 - __main__ - INFO -   ✅ verify_ingestion
+2026-06-11 16:35:48,218 - __main__ - INFO -   ❌ final_report
+2026-06-11 16:35:48,218 - __main__ - INFO - ================================================================================
+
+2026-06-11 16:35:48,219 - __main__ - INFO - Trace log saved to trace_test-service_ci.json

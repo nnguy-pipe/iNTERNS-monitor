@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+import logging
 
 from src.store.sqlite import get_db
 from src.services.persistence import PersistenceService
@@ -11,6 +12,10 @@ from src.services.normalize import NormalizationPipeline
 from src.services.ingest import IngestionHarness
 from src.services.agents import run_all_agents
 from src.services.audit import AuditService
+
+logger = logging.getLogger(__name__)
+_debug_logger = logging.getLogger(f"{__name__}.debug")
+_debug_logger.setLevel(logging.DEBUG)
 
 # Create router
 router = APIRouter(prefix="/api", tags=["api"])
@@ -37,10 +42,13 @@ def ingest_event(
     }
     ```
     """
+    _debug_logger.debug(f"[API] POST /api/events received: source={payload.get('source')}, event_type={payload.get('event_type')}, system={payload.get('system_name')}")
+    
     try:
         # Validate payload
         is_valid, error = IngestionHarness.validate_event_payload(payload)
         if not is_valid:
+            _debug_logger.warning(f"[API] Event validation failed: {error}")
             raise ValueError(error)
         
         # Create CI event
@@ -56,6 +64,8 @@ def ingest_event(
             correlation_id=payload.get("correlation_id"),
         )
         
+        _debug_logger.debug(f"[API] CI event created: id={event.id}, timestamp={event.timestamp.isoformat()}")
+        
         # Normalize event
         normalized_data = NormalizationPipeline.normalize(
             payload.get("data", {}),
@@ -69,6 +79,9 @@ def ingest_event(
                 normalized_data=normalized_data,
                 status="normalized"
             )
+            _debug_logger.debug(f"[API] Event normalized: id={event.id}")
+        else:
+            _debug_logger.warning(f"[API] Event normalization failed: id={event.id}")
         
         # Log audit event
         PersistenceService.log_audit_event(
@@ -80,12 +93,24 @@ def ingest_event(
             related_event_id=event.id,
         )
         
+        # **NEW**: Automatically trigger report generation after ingestion
+        _debug_logger.debug(f"[API] Triggering report generation for system={payload.get('system_name')}, env={payload.get('environment')}")
+        generate_health_report_internal(
+            db=db,
+            system_name=payload.get("system_name"),
+            environment=payload.get("environment")
+        )
+        
+        _debug_logger.debug(f"[API] Event ingestion complete: event_id={event.id}")
+        
         return {
             "status": "ingested",
             "event_id": event.id,
             "timestamp": event.timestamp.isoformat(),
         }
     except Exception as e:
+        _debug_logger.error(f"[API] Event ingestion failed: {str(e)}")
+        logger.error(f"Event ingestion failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Ingestion failed: {str(e)}")
 
 
@@ -126,13 +151,19 @@ def get_latest_report(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Get the latest health report for a system."""
+    _debug_logger.debug(f"[API] GET /api/reports/latest: system={system_name}, environment={environment}")
+    
     report = PersistenceService.get_latest_health_report(
         db=db,
         system_name=system_name,
         environment=environment,
     )
+    
     if not report:
+        _debug_logger.warning(f"[API] No report found: system={system_name}, environment={environment}")
         raise HTTPException(status_code=404, detail="No report found for this system")
+    
+    _debug_logger.debug(f"[API] Report retrieved: score={report.health_score}, status={report.status}, age={datetime.utcnow() - report.created_at}")
     
     return {
         "id": report.id,
