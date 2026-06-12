@@ -10,7 +10,7 @@ import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
-import { API_BASE, fetchAgentChecks } from './utils/api.js';
+import { API_BASE, fetchAgentChecks, fetchLatestReport, ingestSimulatorMetrics } from './utils/api.js';
 import {
   buildReportPdfBlob,
   buildTelemetrySnapshot,
@@ -33,6 +33,12 @@ const AGENT_META = {
 const STATUS_LABEL = { healthy: 'Healthy', warning: 'Warning', critical: 'Critical', unknown: 'Unknown' };
 const STATUS_CONFIDENCE = { healthy: 97, warning: 72, critical: 38, unknown: 50 };
 const SCORE_SYSTEM_NAME = 'iMonitor';
+const REPORT_RESULT = {
+  healthy: 'All monitored subsystems are within safe operating ranges.',
+  warning: 'One or more subsystem metrics are elevated.',
+  critical: 'One or more subsystems need immediate attention.',
+  unknown: 'Latest persisted report is unavailable.',
+};
 
 function mapReportStatus(status) {
   if (status === 'healthy') return 'Healthy';
@@ -66,19 +72,49 @@ function mapBackendAgents(backendAgents) {
   });
 }
 
+function buildFallbackReport(healthSnapshot) {
+  return {
+    healthScore: healthSnapshot.healthScore,
+    result: healthSnapshot.result,
+    summary: healthSnapshot.summary,
+    areasOfConcern: healthSnapshot.areasOfConcern,
+    suggestedImprovements: healthSnapshot.suggestedImprovements,
+  };
+}
+
+function buildDisplayReport(backendReport, fallbackReport) {
+  if (!backendReport) return fallbackReport;
+
+  const status = backendReport.status || 'unknown';
+  const primaryIssue =
+    typeof backendReport.primary_issue === 'string' && backendReport.primary_issue.trim()
+      ? backendReport.primary_issue.trim()
+      : 'No primary issue recorded';
+  const suggestions = Array.isArray(backendReport.suggestions) && backendReport.suggestions.length
+    ? backendReport.suggestions.filter((item) => typeof item === 'string' && item.trim())
+    : ['Continue monitoring the persisted report.'];
+
+  return {
+    healthScore: Math.round(Number(backendReport.health_score ?? fallbackReport.healthScore)),
+    result: REPORT_RESULT[status] || REPORT_RESULT.unknown,
+    summary:
+      status === 'healthy'
+        ? 'The latest persisted report indicates the environment is healthy.'
+        : `The latest persisted report highlights ${primaryIssue}.`,
+    areasOfConcern: [primaryIssue],
+    suggestedImprovements: suggestions.length ? suggestions : ['Continue monitoring the persisted report.'],
+  };
+}
+
 function App() {
   const pollingInterval = 2500;
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
   const [liveAgents, setLiveAgents] = useState(null); // null = not yet loaded
 
-  //from API
-  const [apiHealth, setApiHealth] = useState(null);
-  const [apiMetrics, setApiMetrics] = useState(null);
   const [health, setHealth] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
   const [backendReports, setBackendReports] = useState({ CI: null, PROD: null });
-  const [scoreSources, setScoreSources] = useState({ CI: 'fallback', PROD: 'fallback' });
   const [loading, setLoading] = useState(true);
   const [reportExportBusy, setReportExportBusy] = useState({
     pdf: false,
@@ -89,16 +125,14 @@ function App() {
   const [selectedAlert, setSelectedAlert] = useState(null);
   const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
   const activeAlerts = healthSnapshot.alerts;
-  const report = {
-    healthScore: healthSnapshot.healthScore,
-    result: healthSnapshot.result,
-    summary: healthSnapshot.summary,
-    areasOfConcern: healthSnapshot.areasOfConcern,
-    suggestedImprovements: healthSnapshot.suggestedImprovements,
-  };
+  const fallbackReport = useMemo(() => buildFallbackReport(healthSnapshot), [healthSnapshot]);
+  const displayReport = useMemo(
+    () => buildDisplayReport(backendReports[environment], fallbackReport),
+    [backendReports, environment, fallbackReport]
+  );
   const healthStatus = healthSnapshot.status;
-  const healthScore = healthSnapshot.healthScore;
-  const summary = healthSnapshot.summary;
+  const healthScore = displayReport.healthScore;
+  const summary = displayReport.summary;
   const skills = mockSkills[environment] || [];
 
   function triggerDownload(blob, filename) {
@@ -129,14 +163,14 @@ function App() {
   const reportSnapshot = useMemo(
     () => ({
       environment,
-      healthScore: healthSnapshot.healthScore,
-      result: healthSnapshot.result,
-      summary: healthSnapshot.summary,
-      areasOfConcern: healthSnapshot.areasOfConcern,
-      suggestedImprovements: healthSnapshot.suggestedImprovements,
+      healthScore: displayReport.healthScore,
+      result: displayReport.result,
+      summary: displayReport.summary,
+      areasOfConcern: displayReport.areasOfConcern,
+      suggestedImprovements: displayReport.suggestedImprovements,
       telemetrySnapshot: buildTelemetrySnapshot(subsystems),
     }),
-    [environment, healthSnapshot, subsystems]
+    [displayReport, environment, subsystems]
   );
 
   async function downloadPdfReport() {
@@ -212,7 +246,6 @@ function App() {
         ]);
 
         setHealth(healthRes);
-        setApiMetrics(metricsRes);
 
         // Convert subsystems object -> array
         const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
@@ -222,13 +255,15 @@ function App() {
 
         try {
           await ingestSimulatorMetrics(SCORE_SYSTEM_NAME, environment);
+        } catch {
+          // Keep going even if simulator ingestion is unavailable; an existing report may still be readable.
+        }
+
+        try {
           const latestReport = await fetchLatestReport(SCORE_SYSTEM_NAME, environment);
           setBackendReports((prev) => ({ ...prev, [environment]: latestReport }));
-          setScoreSources((prev) => ({ ...prev, [environment]: 'backend' }));
         } catch {
-          if (!backendReports[environment]) {
-            setScoreSources((prev) => ({ ...prev, [environment]: 'fallback' }));
-          }
+          // Keep the existing report if the database-backed lookup is unavailable.
         }
       } finally {
         setLoading(false);
@@ -291,6 +326,7 @@ function App() {
             activeAlerts={activeAlerts.length}
             environment={environment}
             summary={summary}
+            scoreSource={backendReports[environment] ? 'backend' : 'fallback'}
             onOpenReport={openReport}
           />
 
@@ -310,7 +346,7 @@ function App() {
           <section className="grid gap-6 lg:grid-cols-12 items-start">
             <div className="lg:col-span-8">
               <ReportPreview
-                report={report}
+                report={displayReport}
                 onDownloadPdf={downloadPdfReport}
                 onDownloadJson={downloadSimulatorJson}
                 onDownloadXml={downloadSimulatorXml}
