@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Any, Optional, Set, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -19,10 +19,15 @@ class CorrelationEngine:
     def _parse_timestamp(value: Any) -> datetime:
         """Best-effort timestamp parsing for normalized events and persisted payloads."""
         if isinstance(value, datetime):
+            if value.tzinfo is not None:
+                return value.astimezone(timezone.utc).replace(tzinfo=None)
             return value
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is not None:
+                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
             except Exception:
                 return datetime.utcnow()
         return datetime.utcnow()

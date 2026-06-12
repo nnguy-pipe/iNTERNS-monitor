@@ -42,6 +42,31 @@ curl -X POST http://localhost:9999/preset/default
 
 Valid presets: default, high_cpu, low_cpu, high_ram, low_ram, high_users, low_users
 
+## Frontend Reflection Notes (Important)
+
+The preset command below is accurate and only controls the daemon state:
+
+curl -X POST http://localhost:9999/preset/high_ram
+
+What updates immediately:
+- Daemon endpoints (/metrics, /summary)
+- Frontend live metrics charts (if backend /api/simulator/metrics is reachable)
+
+What does NOT update automatically from preset change alone:
+- Backend-generated report cards (CI/PROD report panel)
+
+To refresh report content in frontend, ingest simulator data and generate report through backend:
+
+CI example:
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=infra-demo&environment=ci&scenario=full&generate_user_report=true"
+
+PROD example:
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=infra-demo&environment=production&scenario=full&generate_user_report=true"
+
+Then fetch reports explicitly (optional verification):
+curl "http://localhost:8000/api/reports/user?system_name=infra-demo&environment=ci&format=markdown"
+curl "http://localhost:8000/api/reports/user?system_name=infra-demo&environment=production&format=markdown"
+
 ## Export Formats
 
 # Full SQL-compatible JSON (all metrics)

@@ -7,7 +7,7 @@ BACKEND_PID=$!
 
 # --- Start simulator ---
 echo "Starting simulator..."
-infrastructure_sim/infrastructure_simulator_daemon.py --port 9999 &
+python3 infrastructure_sim/infrastructure_simulator_daemon.py --port 9999 &
 SIM_PID=$!
 
 # --- Start frontend ---

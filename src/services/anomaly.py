@@ -2,7 +2,7 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from math import sqrt
 from typing import Any, Dict, List, Optional
 
@@ -15,10 +15,15 @@ class AnomalyEngine:
     @staticmethod
     def _parse_timestamp(value: Any) -> datetime:
         if isinstance(value, datetime):
+            if value.tzinfo is not None:
+                return value.astimezone(timezone.utc).replace(tzinfo=None)
             return value
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is not None:
+                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
             except Exception:
                 return datetime.utcnow()
         return datetime.utcnow()

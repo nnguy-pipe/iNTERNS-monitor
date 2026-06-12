@@ -148,6 +148,79 @@ Environment variables (see `.env.example`):
 - GET /api/reports/user (json or markdown)
 - POST /api/reports/user/generate (one-shot generation + user report output)
 
+## Simulator Integration
+
+The backend includes simulator bridge endpoints to test the complete monitoring pipeline with synthetic infrastructure events.
+
+Simulator endpoints
+
+- GET /api/simulator/health
+- GET /api/simulator/metrics
+- GET /api/simulator/summary
+- POST /api/simulator/preset/{preset}
+- POST /api/simulator/ingest?system_name=...&environment=...&scenario=single|full&generate_user_report=true|false
+
+Scenarios
+
+- single:
+	- Pull one metric snapshot from the simulator daemon.
+	- Ingest and normalize a single metric event.
+
+- full:
+	- Pull a correlated chain composed of metric, log, and trace events.
+	- Ingest all events under one correlation_id.
+	- Trigger stronger reasoning, anomaly, and correlation outcomes.
+
+Recent integration updates
+
+1. Simulator payload compatibility:
+- simulator metric source is aligned to observability so ingestion validation succeeds.
+
+2. Full-chain generation:
+- Added a generated event chain with shared correlation id and mixed event types.
+
+3. Rich simulator ingest API:
+- Added scenario selector and optional report generation toggle.
+
+4. Correlation context enrichment:
+- report generation now ensures normalized events include source, correlation_id, and timestamp defaults from persisted events.
+
+5. Timestamp consistency hardening:
+- reasoning, correlation, and anomaly engines normalize timezone-aware inputs to a consistent UTC-naive representation before arithmetic.
+
+How the backend works end-to-end
+
+1. Ingestion:
+- POST /api/events or POST /api/simulator/ingest stores CIEvent rows.
+
+2. Normalization:
+- event payloads are normalized by event_type (metric, log, trace) and written back to ci_events.normalized.
+
+3. Reasoning and detection:
+- POST /api/reports/generate reads recent normalized events and runs:
+	- ReasoningEngine.evaluate_health
+	- CorrelationEngine (time-window and cascade analysis)
+	- AnomalyEngine (statistical and rule-based)
+
+4. Persistence and audit:
+- health report is written to health_reports.
+- reasoning decision is logged in audit_logs.
+
+5. Report retrieval:
+- GET /api/reports/latest returns latest summary.
+- GET /api/reports/user returns user-facing json or markdown.
+- POST /api/reports/user/generate generates and returns formatted output in one call.
+
+Minimal verification flow
+
+```bash
+# Ingest full simulator chain and generate report
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=infra-demo&environment=ci&scenario=full&generate_user_report=true"
+
+# Retrieve generated user report
+curl "http://localhost:8000/api/reports/user?system_name=infra-demo&environment=ci&format=markdown"
+```
+
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR:

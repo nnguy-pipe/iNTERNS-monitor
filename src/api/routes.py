@@ -277,6 +277,9 @@ def generate_report(
         normalized.setdefault("id", e.id)
         normalized.setdefault("system_name", e.system_name)
         normalized.setdefault("environment", e.environment)
+        normalized.setdefault("source", e.source)
+        normalized.setdefault("correlation_id", e.correlation_id)
+        normalized.setdefault("timestamp", e.timestamp.isoformat())
         normalized_events.append(normalized)
     
     if not normalized_events:
@@ -626,6 +629,8 @@ def get_simulator_summary() -> Dict[str, Any]:
 def ingest_simulator_metrics(
     system_name: str = Query(..., description="System name for metrics"),
     environment: str = Query("ci", description="Environment (ci, staging, production)"),
+    scenario: str = Query("single", description="single or full"),
+    generate_user_report: bool = Query(False, description="Generate report after ingestion"),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
@@ -639,66 +644,111 @@ def ingest_simulator_metrics(
         environment: Environment context
     
     Returns:
-        Ingested event ID and status
+        Ingested event status. In full scenario, ingests a correlated event chain.
     """
     try:
         from src.simulator_bridge import SimulatorEventBridge
-        
+
+        scenario_normalized = scenario.strip().lower()
+        if scenario_normalized not in {"single", "full"}:
+            raise ValueError("scenario must be one of: single, full")
+
         bridge = SimulatorEventBridge()
-        event = bridge.pull_metric_event(system_name, environment)
-        
-        if not event:
-            raise Exception("Failed to pull metric from simulator")
-        
-        # Ingest the event through normal pipeline
-        is_valid, error = IngestionHarness.validate_event_payload(event)
-        if not is_valid:
-            raise ValueError(error)
-        
-        ingested_event = PersistenceService.create_ci_event(
-            db=db,
-            source=event.get("source"),
-            source_id=event.get("source_id"),
-            event_type=event.get("event_type"),
-            timestamp=datetime.fromisoformat(event.get("timestamp").replace('Z', '+00:00')),
-            environment=event.get("environment"),
-            data=event.get("data", {}),
-            system_name=event.get("system_name"),
-            correlation_id=event.get("correlation_id"),
-        )
-        
-        # Normalize
-        normalized_data = NormalizationPipeline.normalize(
-            event.get("data", {}),
-            event.get("event_type")
-        )
-        
-        if normalized_data:
-            PersistenceService.update_ci_event_normalization(
+
+        events: List[Dict[str, Any]]
+        if scenario_normalized == "full":
+            events = bridge.pull_event_chain(system_name, environment)
+            if not events:
+                raise Exception("Failed to pull simulator event chain")
+        else:
+            single_event = bridge.pull_metric_event(system_name, environment)
+            if not single_event:
+                raise Exception("Failed to pull metric from simulator")
+            events = [single_event]
+
+        ingested_ids: List[str] = []
+        for event in events:
+            is_valid, error = IngestionHarness.validate_event_payload(event)
+            if not is_valid:
+                raise ValueError(error)
+
+            ingested_event = PersistenceService.create_ci_event(
                 db=db,
-                event_id=ingested_event.id,
-                normalized_data=normalized_data,
-                status="normalized"
+                source=event.get("source"),
+                source_id=event.get("source_id"),
+                event_type=event.get("event_type"),
+                timestamp=datetime.fromisoformat(str(event.get("timestamp")).replace("Z", "+00:00")),
+                environment=event.get("environment"),
+                data=event.get("data", {}),
+                system_name=event.get("system_name"),
+                correlation_id=event.get("correlation_id"),
             )
-        
+
+            normalized_data = NormalizationPipeline.normalize(
+                event.get("data", {}),
+                event.get("event_type"),
+            )
+
+            if normalized_data:
+                PersistenceService.update_ci_event_normalization(
+                    db=db,
+                    event_id=ingested_event.id,
+                    normalized_data=normalized_data,
+                    status="normalized",
+                )
+
+            ingested_ids.append(ingested_event.id)
+
         # Audit
         PersistenceService.log_audit_event(
             db=db,
             event_type="simulator_ingestion",
             system_name=system_name,
             environment=environment,
-            event_data={"event_id": ingested_event.id, "source": "infrastructure_simulator"},
-            related_event_id=ingested_event.id,
+            event_data={
+                "source": "simulator",
+                "scenario": scenario_normalized,
+                "ingested_count": len(ingested_ids),
+                "event_ids": ingested_ids,
+            },
+            related_event_id=ingested_ids[-1],
         )
-        
-        return {
+
+        response: Dict[str, Any] = {
             "status": "ingested",
-            "event_id": ingested_event.id,
+            "scenario": scenario_normalized,
+            "event_id": ingested_ids[0],
+            "event_ids": ingested_ids,
+            "ingested_count": len(ingested_ids),
             "system_name": system_name,
             "environment": environment,
-            "preset": event.get("data", {}).get("preset"),
-            "timestamp": ingested_event.timestamp.isoformat(),
+            "report_endpoints": {
+                "generate": "/api/reports/generate",
+                "user_generate": "/api/reports/user/generate",
+                "latest": "/api/reports/latest",
+                "user": "/api/reports/user",
+            },
         }
+
+        if generate_user_report:
+            user_report = generate_user_report_on_demand(
+                payload={
+                    "system_name": system_name,
+                    "environment": environment,
+                    "lookback_minutes": 60,
+                    "format": "markdown",
+                },
+                db=db,
+            )
+            response["generated_report"] = {
+                "id": user_report.get("id"),
+                "status": user_report.get("status"),
+                "health_score": user_report.get("health_score"),
+                "primary_issue": user_report.get("primary_issue"),
+                "report_markdown": user_report.get("report_markdown"),
+            }
+
+        return response
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Simulator ingestion failed: {str(e)}")
 

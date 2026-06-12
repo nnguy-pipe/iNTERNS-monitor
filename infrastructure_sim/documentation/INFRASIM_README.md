@@ -101,3 +101,60 @@ python3 infrastructure_simulator.py --preset high_users --duration 120 --out sim
 Next step
 
 The simulator now exports SQL-compatible JSON/XML formats. Use --out-format sql-json for SQL databases or --out-format both for multi-target pipelines. See SQL_IMPORT_GUIDE.md for database-specific import procedures.
+
+Backend integration and recent changes
+
+The simulator is integrated with the AHMS backend through API routes under /api/simulator/*.
+
+What the simulator now does for backend testing
+
+- Provides live subsystem metrics from the daemon on localhost:9999.
+- Supports runtime preset switching (high_cpu, low_cpu, high_ram, low_ram, high_users, low_users, default).
+- Can ingest one metric snapshot into the backend (single scenario).
+- Can ingest a correlated full event chain (full scenario) to exercise:
+   - normalization
+   - reasoning and health scoring
+   - anomaly detection
+   - event correlation and cascading-pattern detection
+   - report generation and audit logging
+
+Important behavior changes made
+
+1. Event source compatibility:
+- Simulator-produced metric events now use source=observability for backend schema validation compatibility.
+
+2. Full event chain support:
+- A new chain generator emits multiple event types sharing one correlation id:
+   - metric events (cpu_usage_percent)
+   - workflow error logs (burst)
+   - slow trace event
+- This intentionally creates enough evidence for correlation and anomaly rules.
+
+3. Simulator ingest endpoint enhancements:
+- /api/simulator/ingest now supports:
+   - scenario=single|full
+   - generate_user_report=true|false
+- full + generate_user_report=true ingests and immediately returns a user-facing report.
+
+4. Run script reliability:
+- run.sh now launches daemon with python3 infrastructure_sim/infrastructure_simulator_daemon.py --port 9999.
+
+How to run end-to-end
+
+1) Start backend and simulator daemon.
+
+2) Ingest a full chain and generate report in one call:
+
+```bash
+curl -X POST "http://localhost:8000/api/simulator/ingest?system_name=infra-demo&environment=ci&scenario=full&generate_user_report=true"
+```
+
+3) Fetch latest user-facing report:
+
+```bash
+curl "http://localhost:8000/api/reports/user?system_name=infra-demo&environment=ci&format=markdown"
+```
+
+The report is reachable through both:
+- inline response from /api/simulator/ingest with generate_user_report=true
+- standalone retrieval from /api/reports/user and /api/reports/latest
