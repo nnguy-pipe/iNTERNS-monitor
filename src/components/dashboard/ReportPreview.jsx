@@ -1,11 +1,18 @@
-function ReportPreview({ report, onDownloadPdf, onDownloadJson, onDownloadXml, exportStatus }) {
-  const statusText = exportStatus?.message;
-  const statusTone =
-    exportStatus?.type === 'error'
-      ? 'text-red-700'
-      : exportStatus?.type === 'success'
-        ? 'text-emerald-700'
-        : 'text-slate-600';
+function ReportPreview({
+  report,
+  onDownloadPdf = () => {},
+  onDownloadJson = () => {},
+  onDownloadXml = () => {},
+  exportStatus = { busy: { pdf: false, json: false, xml: false } },
+  statusText = '',
+  statusTone = 'text-slate-500',
+}) {
+  const concerns = report?.areasOfConcern || [];
+  const improvements = report?.suggestedImprovements || [];
+  const attachedReport = report?.attachedReport || '';
+  const reasoningItems = report?.reasoningItems || [];
+  const correlatedEvents = report?.correlatedEvents || [];
+  const anomalyItems = report?.anomalyItems || [];
 
   return (
     <section id="reports" tabIndex={-1} className="rounded-xl bg-white p-8 border border-slate-200 h-full">
@@ -19,13 +26,13 @@ function ReportPreview({ report, onDownloadPdf, onDownloadJson, onDownloadXml, e
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg bg-slate-50 p-6 border border-slate-200">
           <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Health score</p>
-          <p className="mt-3 text-5xl font-semibold text-slate-900">{report.healthScore}</p>
-          <p className="mt-2 text-sm text-slate-600">{report.result}</p>
+          <p className="mt-3 text-5xl font-semibold text-slate-900">{report?.healthScore}</p>
+          <p className="mt-2 text-sm text-slate-600">{report?.result}</p>
         </div>
 
         <div className="rounded-lg bg-slate-50 p-6 border border-slate-200">
           <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Summary</p>
-          <p className="mt-3 text-slate-600">{report.summary}</p>
+          <p className="mt-3 text-slate-600">{report?.summary}</p>
         </div>
       </div>
 
@@ -64,7 +71,7 @@ function ReportPreview({ report, onDownloadPdf, onDownloadJson, onDownloadXml, e
         <div className="rounded-lg bg-white p-6 border border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">Areas of concern</h3>
           <ul className="mt-4 space-y-2 text-slate-600 list-none">
-            {report.areasOfConcern.map((item) => (
+            {concerns.map((item) => (
               <li key={item} className="text-sm leading-relaxed">• {item}</li>
             ))}
           </ul>
@@ -72,12 +79,64 @@ function ReportPreview({ report, onDownloadPdf, onDownloadJson, onDownloadXml, e
         <div className="rounded-lg bg-white p-6 border border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">Suggested improvements</h3>
           <ul className="mt-4 space-y-2 text-slate-600 list-none">
-            {report.suggestedImprovements.map((item) => (
+            {improvements.map((item) => (
               <li key={item} className="text-sm leading-relaxed">• {item}</li>
             ))}
           </ul>
         </div>
       </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div className="rounded-lg bg-white p-6 border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900">Reasoning</h3>
+          {reasoningItems.length ? (
+            <ul className="mt-3 space-y-2 text-slate-600 list-none">
+              {reasoningItems.map((item, idx) => (
+                <li key={`${idx}-${item}`} className="text-sm leading-relaxed">• {item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">No reasoning chain available for this report.</p>
+          )}
+        </div>
+
+        <div className="rounded-lg bg-white p-6 border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900">Correlation</h3>
+          <p className="mt-3 text-sm text-slate-600">Correlated events: {correlatedEvents.length}</p>
+          {correlatedEvents.length ? (
+            <ul className="mt-3 space-y-2 text-slate-600 list-none">
+              {correlatedEvents.slice(0, 5).map((id) => (
+                <li key={id} className="text-xs leading-relaxed">• {id}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">No correlated event chain detected.</p>
+          )}
+        </div>
+
+        <div className="rounded-lg bg-white p-6 border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900">Anomalies</h3>
+          <p className="mt-3 text-sm text-slate-600">Detected: {anomalyItems.length}</p>
+          {anomalyItems.length ? (
+            <ul className="mt-3 space-y-2 text-slate-600 list-none">
+              {anomalyItems.slice(0, 5).map((item, idx) => (
+                <li key={`${idx}-${item.rule}`} className="text-xs leading-relaxed">
+                  • [{item.severity}] {item.reason}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">No anomalies detected in current report window.</p>
+          )}
+        </div>
+      </div>
+
+      {attachedReport ? (
+        <div className="mt-6 rounded-lg bg-slate-50 p-6 border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900">Attached backend report</h3>
+          <pre className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{attachedReport}</pre>
+        </div>
+      ) : null}
     </section>
   );
 }

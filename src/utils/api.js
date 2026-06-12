@@ -38,34 +38,41 @@ export async function fetchAgentChecks() {
 }
 
 /**
- * GET /api/reports/latest
- * Fetches the latest persisted health report for a system/environment pair.
+ * GET /api/reports/user?format=markdown
+ * Falls back to POST /api/reports/user/generate when no report exists.
  */
-export async function fetchLatestReport(systemName, environment) {
-  const backendEnv = toBackendEnvironment(environment);
-  const res = await fetch(
-    `${API_BASE}/api/reports/latest?system_name=${encodeURIComponent(systemName)}&environment=${encodeURIComponent(backendEnv)}`,
-    {
-      signal: AbortSignal.timeout(5000),
-    },
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
+export async function fetchUserReport(systemName, environment) {
+  // Generate or refresh in one call to avoid noisy 404 logs when no report exists yet.
+  const generated = await fetch(`${API_BASE}/api/reports/user/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_name: systemName,
+      environment,
+      lookback_minutes: 60,
+      format: 'markdown',
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
 
-/**
- * POST /api/simulator/ingest
- * Pulls current simulator metrics into backend ingestion pipeline.
- */
-export async function ingestSimulatorMetrics(systemName, environment) {
-  const backendEnv = toBackendEnvironment(environment);
-  const res = await fetch(
-    `${API_BASE}/api/simulator/ingest?system_name=${encodeURIComponent(systemName)}&environment=${encodeURIComponent(backendEnv)}`,
-    {
-      method: 'POST',
-      signal: AbortSignal.timeout(5000),
-    },
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  if (generated.ok) {
+    return generated.json();
+  }
+
+  // Fallback to latest if generation is unavailable.
+  const query = new URLSearchParams({
+    system_name: systemName,
+    environment,
+    format: 'markdown',
+  });
+
+  const latest = await fetch(`${API_BASE}/api/reports/user?${query.toString()}`, {
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!latest.ok) {
+    throw new Error(`HTTP ${generated.status}/${latest.status}`);
+  }
+
+  return latest.json();
 }

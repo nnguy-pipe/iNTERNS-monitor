@@ -11,6 +11,7 @@ from src.services.persistence import PersistenceService
 from src.services.normalize import NormalizationPipeline
 from src.services.ingest import IngestionHarness
 from src.services.agents import run_all_agents
+from src.services.audit import AuditService
 
 logger = logging.getLogger(__name__)
 _debug_logger = logging.getLogger(f"{__name__}.debug")
@@ -176,114 +177,90 @@ def get_latest_report(
     }
 
 
+@router.get("/reports/user", tags=["reports"])
+def generate_user_report(
+    system_name: str = Query(..., description="System to retrieve report for"),
+    environment: str = Query(..., description="Environment (ci, staging, production)"),
+    format: str = Query("json", description="Output format: json or markdown"),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Generate a user-facing health report from the latest assessment."""
+    report = PersistenceService.get_latest_health_report(
+        db=db,
+        system_name=system_name,
+        environment=environment,
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="No report found for this system")
 
+    suggestions = report.suggestions or []
+    reasoning = report.reasoning or {}
+    anomalies = report.anomalies_detected or []
+    correlated_events = report.correlated_events or []
 
-def generate_health_report_internal(
-    db: Session,
-    system_name: str,
-    environment: str,
-    lookback_minutes: int = 60,
-) -> Optional[Dict[str, Any]]:
-    """
-    Internal helper to generate health reports (called after ingestion).
-    
-    This function:
-    1. Retrieves recent normalized events
-    2. Runs the reasoning engine to compute health score
-    3. Persists the report to the database
-    
-    Args:
-        db: Database session
-        system_name: Name of the system
-        environment: ci, staging, or production
-        lookback_minutes: How far back to look for events
-        
-    Returns: Generated report dict or None on error
-    """
-    from src.services.reasoning import ReasoningEngine
-    from src.services.correlation import CorrelationEngine
-    
-    try:
-        # Retrieve recent normalized events
-        events = PersistenceService.get_ci_events(
-            db=db,
-            system_name=system_name,
-            environment=environment,
-            limit=100,
-        )
-        
-        # Extract normalized data
-        normalized_events = [
-            e.normalized for e in events if e.normalized
-        ]
-        
-        _debug_logger.debug(f"[REPORT_GEN] Generating report: system={system_name}, env={environment}, events={len(normalized_events)}")
-        
-        if not normalized_events:
-            _debug_logger.debug(f"[REPORT_GEN] No normalized events found, skipping report generation")
-            return None
-        
-        # Run reasoning engine
-        health_score = ReasoningEngine.compute_health_score(normalized_events)
-        primary_issue = ReasoningEngine.identify_primary_issue(normalized_events)
-        reasoning = ReasoningEngine.generate_reasoning_narrative(normalized_events)
-        suggestions = ReasoningEngine.generate_suggestions(health_score, primary_issue)
-        
-        # Run correlation engine
-        cascades = CorrelationEngine.detect_cascading_failures(normalized_events)
-        time_clusters = CorrelationEngine.correlate_by_time_window(normalized_events)
-        
-        # Determine status
-        if health_score >= 0.8:
-            status = "healthy"
-        elif health_score >= 0.5:
-            status = "warning"
-        else:
-            status = "critical"
-        
-        # Persist report
-        report = PersistenceService.create_health_report(
-            db=db,
-            system_name=system_name,
-            environment=environment,
-            status=status,
-            health_score=health_score,
-            primary_issue=primary_issue,
-            suggestions=[s.get("action") for s in suggestions],
-        )
-        
-        _debug_logger.debug(f"[REPORT_GEN] Report persisted: id={report.id}, score={health_score:.2f}, status={status}")
-        
-        # Log audit event
-        PersistenceService.log_audit_event(
-            db=db,
-            event_type="reasoning",
-            system_name=system_name,
-            environment=environment,
-            event_data={
-                "score": health_score,
-                "events_analyzed": len(normalized_events),
-            },
-            related_report_id=report.id,
-        )
-        
-        return {
-            "id": report.id,
-            "system_name": system_name,
-            "environment": environment,
-            "status": status,
-            "health_score": health_score,
-            "primary_issue": primary_issue,
-            "reasoning": reasoning,
-            "suggestions": suggestions,
-            "cascading_failures": cascades,
-            "event_clusters": len(time_clusters),
-            "created_at": report.created_at.isoformat(),
-        }
-    except Exception as e:
-        _debug_logger.error(f"[REPORT_GEN] Report generation failed: {str(e)}")
-        logger.error(f"Report generation failed: {str(e)}")
-        return None
+    base_report = {
+        "id": report.id,
+        "system_name": report.system_name,
+        "environment": report.environment,
+        "status": report.status,
+        "health_score": report.health_score,
+        "confidence": report.confidence,
+        "primary_issue": report.primary_issue,
+        "suggestions": suggestions,
+        "reasoning": reasoning,
+        "anomalies": anomalies,
+        "correlated_events": correlated_events,
+        "created_at": report.created_at.isoformat(),
+    }
+
+    output_format = format.strip().lower()
+    if output_format not in {"json", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be one of: json, markdown")
+
+    if output_format == "json":
+        return base_report
+
+    reasoning_lines = reasoning.get("reasoning_chain") if isinstance(reasoning, dict) else []
+    markdown_lines = [
+        f"# AHMS Health Report: {report.system_name}",
+        "",
+        f"- Environment: {report.environment}",
+        f"- Status: {report.status}",
+        f"- Health Score: {report.health_score}",
+        f"- Confidence: {report.confidence}",
+        f"- Generated At: {report.created_at.isoformat()}",
+        "",
+        "## Primary Issue",
+        report.primary_issue or "No primary issue identified.",
+        "",
+        "## Suggestions",
+    ]
+
+    if suggestions:
+        markdown_lines.extend([f"- {item}" for item in suggestions])
+    else:
+        markdown_lines.append("- No remediation suggestions generated.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Reasoning")
+    if reasoning_lines:
+        markdown_lines.extend([f"- {item}" for item in reasoning_lines])
+    else:
+        markdown_lines.append("- No reasoning chain available.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Correlations")
+    markdown_lines.append(f"- Correlated events: {len(correlated_events)}")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Anomalies")
+    markdown_lines.append(f"- Detected anomalies: {len(anomalies)}")
+
+    return {
+        **base_report,
+        "format": "markdown",
+        "report_markdown": "\n".join(markdown_lines),
+    }
 
 
 @router.post("/reports/generate", tags=["reports"])
@@ -305,6 +282,7 @@ def generate_report(
     """
     from src.services.reasoning import ReasoningEngine
     from src.services.correlation import CorrelationEngine
+    from src.services.anomaly import AnomalyEngine
     
     system_name = payload.get("system_name")
     environment = payload.get("environment")
@@ -321,10 +299,19 @@ def generate_report(
         limit=100,
     )
     
-    # Extract normalized data
-    normalized_events = [
-        e.normalized for e in events if e.normalized
-    ]
+    # Extract normalized data and retain event IDs for correlation/anomaly references.
+    normalized_events = []
+    for e in events:
+        if not e.normalized:
+            continue
+        normalized = dict(e.normalized)
+        normalized.setdefault("id", e.id)
+        normalized.setdefault("system_name", e.system_name)
+        normalized.setdefault("environment", e.environment)
+        normalized.setdefault("source", e.source)
+        normalized.setdefault("correlation_id", e.correlation_id)
+        normalized.setdefault("timestamp", e.timestamp.isoformat())
+        normalized_events.append(normalized)
     
     if not normalized_events:
         return {
@@ -338,14 +325,26 @@ def generate_report(
         }
     
     # Run reasoning engine
-    health_score = ReasoningEngine.compute_health_score(normalized_events)
-    primary_issue = ReasoningEngine.identify_primary_issue(normalized_events)
-    reasoning = ReasoningEngine.generate_reasoning_narrative(normalized_events)
-    suggestions = ReasoningEngine.generate_suggestions(health_score, primary_issue)
+    reasoning_result = ReasoningEngine.evaluate_health(normalized_events)
+    health_score = reasoning_result["health_score"]
+    primary_issue = reasoning_result["primary_issue"]
+    reasoning = reasoning_result["reasoning"]
+    suggestions = reasoning_result["suggestions"]
+    confidence = reasoning_result["confidence"]
     
     # Run correlation engine
     cascades = CorrelationEngine.detect_cascading_failures(normalized_events)
     time_clusters = CorrelationEngine.correlate_by_time_window(normalized_events)
+    anomalies = AnomalyEngine.detect_anomalies(normalized_events)
+
+    correlated_event_ids = sorted(
+        {
+            event.get("id")
+            for cluster in time_clusters
+            for event in cluster
+            if event.get("id")
+        }
+    )
     
     # Determine status
     if health_score >= 0.8:
@@ -364,6 +363,10 @@ def generate_report(
         health_score=health_score,
         primary_issue=primary_issue,
         suggestions=[s.get("action") for s in suggestions],
+        reasoning=reasoning,
+        confidence=confidence,
+        correlated_events=correlated_event_ids,
+        anomalies_detected=anomalies,
     )
     
     # Log audit event
@@ -387,10 +390,82 @@ def generate_report(
         "health_score": health_score,
         "primary_issue": primary_issue,
         "reasoning": reasoning,
+        "confidence": confidence,
         "suggestions": suggestions,
         "cascading_failures": cascades,
         "event_clusters": len(time_clusters),
+        "anomalies": anomalies,
         "created_at": report.created_at.isoformat(),
+    }
+
+
+@router.post("/reports/user/generate", tags=["reports"])
+def generate_user_report_on_demand(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Generate a report and return user-oriented output in one call."""
+    output_format = str(payload.get("format", "markdown")).strip().lower()
+    if output_format not in {"json", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be one of: json, markdown")
+
+    generated = generate_report(payload=payload, db=db)
+
+    if output_format == "json":
+        return generated
+
+    suggestions = generated.get("suggestions") or []
+    suggestion_lines = []
+    for item in suggestions:
+        if isinstance(item, dict):
+            suggestion_lines.append(f"- {item.get('action', 'No action provided')}")
+        else:
+            suggestion_lines.append(f"- {item}")
+
+    reasoning = generated.get("reasoning") or {}
+    reasoning_chain = reasoning.get("reasoning_chain") if isinstance(reasoning, dict) else []
+    anomalies = generated.get("anomalies") or []
+
+    markdown_lines = [
+        f"# AHMS Health Report: {generated.get('system_name')}",
+        "",
+        f"- Environment: {generated.get('environment')}",
+        f"- Status: {generated.get('status')}",
+        f"- Health Score: {generated.get('health_score')}",
+        f"- Confidence: {generated.get('confidence')}",
+        f"- Generated At: {generated.get('created_at')}",
+        "",
+        "## Primary Issue",
+        str(generated.get("primary_issue") or "No primary issue identified."),
+        "",
+        "## Suggestions",
+    ]
+
+    if suggestion_lines:
+        markdown_lines.extend(suggestion_lines)
+    else:
+        markdown_lines.append("- No remediation suggestions generated.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Reasoning")
+    if reasoning_chain:
+        markdown_lines.extend([f"- {line}" for line in reasoning_chain])
+    else:
+        markdown_lines.append("- No reasoning chain available.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Correlations")
+    markdown_lines.append(f"- Event clusters: {generated.get('event_clusters')}")
+    markdown_lines.append(f"- Cascading patterns: {len(generated.get('cascading_failures') or [])}")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Anomalies")
+    markdown_lines.append(f"- Detected anomalies: {len(anomalies)}")
+
+    return {
+        **generated,
+        "format": "markdown",
+        "report_markdown": "\n".join(markdown_lines),
     }
 
 
@@ -427,16 +502,41 @@ def ci_evaluate(
     
     if not report:
         verdict = "warn"
-        rationale = "No health data available"
+        rationale = {
+            "summary": "No health data available",
+            "reason_code": "NO_HEALTH_REPORT",
+            "health_score": None,
+            "primary_issue": None,
+            "report_id": None,
+        }
     else:
         if report.health_score >= 0.8:
             verdict = "pass"
+            reason_code = "HEALTHY_SCORE"
         elif report.health_score >= 0.5:
             verdict = "warn"
+            reason_code = "DEGRADED_SCORE"
         else:
             verdict = "fail"
-        rationale = report.primary_issue or "Health assessment complete"
-    
+            reason_code = "CRITICAL_SCORE"
+
+        rationale = {
+            "summary": report.primary_issue or "Health assessment complete",
+            "reason_code": reason_code,
+            "health_score": report.health_score,
+            "primary_issue": report.primary_issue,
+            "report_id": report.id,
+        }
+
+    AuditService.log_ci_verdict(
+        db=db,
+        system_name=system_name,
+        environment=environment,
+        verdict=verdict,
+        rationale=rationale,
+        related_report_id=rationale.get("report_id"),
+    )
+
     return {
         "system_name": system_name,
         "environment": environment,
@@ -560,6 +660,8 @@ def get_simulator_summary() -> Dict[str, Any]:
 def ingest_simulator_metrics(
     system_name: str = Query(..., description="System name for metrics"),
     environment: str = Query("ci", description="Environment (ci, staging, production)"),
+    scenario: str = Query("single", description="single or full"),
+    generate_user_report: bool = Query(False, description="Generate report after ingestion"),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
@@ -573,74 +675,111 @@ def ingest_simulator_metrics(
         environment: Environment context
     
     Returns:
-        Ingested event ID and status
+        Ingested event status. In full scenario, ingests a correlated event chain.
     """
     try:
         from src.simulator_bridge import SimulatorEventBridge
-        
+
+        scenario_normalized = scenario.strip().lower()
+        if scenario_normalized not in {"single", "full"}:
+            raise ValueError("scenario must be one of: single, full")
+
         bridge = SimulatorEventBridge()
-        event = bridge.pull_metric_event(system_name, environment)
-        
-        if not event:
-            raise Exception("Failed to pull metric from simulator")
-        
-        # Ingest the event through normal pipeline
-        is_valid, error = IngestionHarness.validate_event_payload(event)
-        if not is_valid:
-            raise ValueError(error)
-        
-        ingested_event = PersistenceService.create_ci_event(
-            db=db,
-            source=event.get("source"),
-            source_id=event.get("source_id"),
-            event_type=event.get("event_type"),
-            timestamp=datetime.fromisoformat(event.get("timestamp").replace('Z', '+00:00')),
-            environment=event.get("environment"),
-            data=event.get("data", {}),
-            system_name=event.get("system_name"),
-            correlation_id=event.get("correlation_id"),
-        )
-        
-        # Normalize
-        normalized_data = NormalizationPipeline.normalize(
-            event.get("data", {}),
-            event.get("event_type")
-        )
-        
-        if normalized_data:
-            PersistenceService.update_ci_event_normalization(
+
+        events: List[Dict[str, Any]]
+        if scenario_normalized == "full":
+            events = bridge.pull_event_chain(system_name, environment)
+            if not events:
+                raise Exception("Failed to pull simulator event chain")
+        else:
+            single_event = bridge.pull_metric_event(system_name, environment)
+            if not single_event:
+                raise Exception("Failed to pull metric from simulator")
+            events = [single_event]
+
+        ingested_ids: List[str] = []
+        for event in events:
+            is_valid, error = IngestionHarness.validate_event_payload(event)
+            if not is_valid:
+                raise ValueError(error)
+
+            ingested_event = PersistenceService.create_ci_event(
                 db=db,
-                event_id=ingested_event.id,
-                normalized_data=normalized_data,
-                status="normalized"
+                source=event.get("source"),
+                source_id=event.get("source_id"),
+                event_type=event.get("event_type"),
+                timestamp=datetime.fromisoformat(str(event.get("timestamp")).replace("Z", "+00:00")),
+                environment=event.get("environment"),
+                data=event.get("data", {}),
+                system_name=event.get("system_name"),
+                correlation_id=event.get("correlation_id"),
             )
-        
+
+            normalized_data = NormalizationPipeline.normalize(
+                event.get("data", {}),
+                event.get("event_type"),
+            )
+
+            if normalized_data:
+                PersistenceService.update_ci_event_normalization(
+                    db=db,
+                    event_id=ingested_event.id,
+                    normalized_data=normalized_data,
+                    status="normalized",
+                )
+
+            ingested_ids.append(ingested_event.id)
+
         # Audit
         PersistenceService.log_audit_event(
             db=db,
             event_type="simulator_ingestion",
             system_name=system_name,
             environment=environment,
-            event_data={"event_id": ingested_event.id, "source": "infrastructure_simulator"},
-            related_event_id=ingested_event.id,
+            event_data={
+                "source": "simulator",
+                "scenario": scenario_normalized,
+                "ingested_count": len(ingested_ids),
+                "event_ids": ingested_ids,
+            },
+            related_event_id=ingested_ids[-1],
         )
 
-        # Keep simulator ingestion behavior aligned with /api/events by generating
-        # the latest report immediately after successful normalization.
-        generate_health_report_internal(
-            db=db,
-            system_name=system_name,
-            environment=environment,
-        )
-        
-        return {
+        response: Dict[str, Any] = {
             "status": "ingested",
-            "event_id": ingested_event.id,
+            "scenario": scenario_normalized,
+            "event_id": ingested_ids[0],
+            "event_ids": ingested_ids,
+            "ingested_count": len(ingested_ids),
             "system_name": system_name,
             "environment": environment,
-            "preset": event.get("data", {}).get("preset"),
-            "timestamp": ingested_event.timestamp.isoformat(),
+            "report_endpoints": {
+                "generate": "/api/reports/generate",
+                "user_generate": "/api/reports/user/generate",
+                "latest": "/api/reports/latest",
+                "user": "/api/reports/user",
+            },
         }
+
+        if generate_user_report:
+            user_report = generate_user_report_on_demand(
+                payload={
+                    "system_name": system_name,
+                    "environment": environment,
+                    "lookback_minutes": 60,
+                    "format": "markdown",
+                },
+                db=db,
+            )
+            response["generated_report"] = {
+                "id": user_report.get("id"),
+                "status": user_report.get("status"),
+                "health_score": user_report.get("health_score"),
+                "primary_issue": user_report.get("primary_issue"),
+                "report_markdown": user_report.get("report_markdown"),
+            }
+
+        return response
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Simulator ingestion failed: {str(e)}")
 
