@@ -16,6 +16,18 @@ class CorrelationEngine:
     """
 
     @staticmethod
+    def _parse_timestamp(value: Any) -> datetime:
+        """Best-effort timestamp parsing for normalized events and persisted payloads."""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except Exception:
+                return datetime.utcnow()
+        return datetime.utcnow()
+
+    @staticmethod
     def correlate_by_time_window(
         events: List[Dict[str, Any]],
         system_name: Optional[str] = None,
@@ -32,7 +44,7 @@ class CorrelationEngine:
         # Sort by timestamp
         sorted_events = sorted(
             events,
-            key=lambda e: e.get("timestamp", datetime.utcnow())
+            key=lambda e: CorrelationEngine._parse_timestamp(e.get("timestamp"))
         )
         
         clusters = []
@@ -40,8 +52,8 @@ class CorrelationEngine:
         window = timedelta(minutes=window_minutes)
         
         for event in sorted_events[1:]:
-            event_time = event.get("timestamp", datetime.utcnow())
-            cluster_start = current_cluster[0].get("timestamp", datetime.utcnow())
+            event_time = CorrelationEngine._parse_timestamp(event.get("timestamp"))
+            cluster_start = CorrelationEngine._parse_timestamp(current_cluster[0].get("timestamp"))
             
             if event_time - cluster_start <= window:
                 current_cluster.append(event)
@@ -121,7 +133,7 @@ class CorrelationEngine:
         - Same environment
         """
         related = []
-        pivot_time = pivot_event.get("timestamp", datetime.utcnow())
+        pivot_time = CorrelationEngine._parse_timestamp(pivot_event.get("timestamp"))
         pivot_system = pivot_event.get("system_name")
         pivot_trace = pivot_event.get("correlation_id") or pivot_event.get("trace_id")
         
@@ -129,7 +141,7 @@ class CorrelationEngine:
             if event.get("id") == pivot_event.get("id"):
                 continue  # Skip self
             
-            event_time = event.get("timestamp", datetime.utcnow())
+            event_time = CorrelationEngine._parse_timestamp(event.get("timestamp"))
             time_diff = abs((event_time - pivot_time).total_seconds())
             
             # Same trace ID is strong signal

@@ -93,3 +93,32 @@ def test_trace_correlation():
     assert "trace-123" in correlations
     assert len(correlations["trace-123"]) == 2
     assert len(correlations["trace-456"]) == 1
+
+
+@pytest.mark.unit
+def test_evaluate_health_returns_full_reasoning_payload():
+    """Test consolidated reasoning output includes confidence and suggestions."""
+    events = [
+        {
+            "type": "log",
+            "level": "error",
+            "message": "database timeout",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        {
+            "type": "trace",
+            "duration_ms": 6100,
+            "status": "error",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    ]
+
+    result = ReasoningEngine.evaluate_health(events)
+
+    assert "health_score" in result
+    assert "primary_issue" in result
+    assert "reasoning" in result
+    assert "suggestions" in result
+    assert "confidence" in result
+    assert isinstance(result["confidence"], float)
+    assert 0.0 <= result["confidence"] <= 1.0

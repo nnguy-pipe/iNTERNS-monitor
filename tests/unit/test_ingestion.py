@@ -6,7 +6,8 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.store.sqlite import init_db, drop_db
+from src.store.sqlite import init_db, drop_db, SessionLocal
+from src.services.persistence import PersistenceService
 
 
 @pytest.fixture
@@ -103,3 +104,82 @@ def test_list_events(client):
     data = response.json()
     assert data["count"] >= 1
     assert len(data["events"]) >= 1
+
+
+@pytest.mark.unit
+def test_generate_report_persists_reasoning_fields(client):
+    """Generated reports should persist reasoning, confidence, correlations, and anomalies."""
+    now = datetime.utcnow().isoformat()
+    base_payload = {
+        "source": "observability",
+        "environment": "ci",
+        "system_name": "reporting-service",
+        "timestamp": now,
+    }
+
+    events = [
+        {
+            **base_payload,
+            "source_id": "e-1",
+            "event_type": "log",
+            "data": {
+                "message": "database error",
+                "level": "error",
+                "timestamp": now,
+            },
+        },
+        {
+            **base_payload,
+            "source_id": "e-2",
+            "event_type": "trace",
+            "data": {
+                "trace_id": "trace-1",
+                "duration_ms": 6500,
+                "status": "error",
+                "timestamp": now,
+            },
+        },
+        {
+            **base_payload,
+            "source_id": "e-3",
+            "event_type": "metric",
+            "data": {
+                "metric_name": "queue_depth",
+                "value": -2,
+                "timestamp": now,
+            },
+        },
+    ]
+
+    for payload in events:
+        resp = client.post("/api/events", json=payload)
+        assert resp.status_code == 200
+
+    response = client.post(
+        "/api/reports/generate",
+        json={
+            "system_name": "reporting-service",
+            "environment": "ci",
+            "lookback_minutes": 60,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "reasoning" in body
+    assert "confidence" in body
+    assert "anomalies" in body
+
+    db = SessionLocal()
+    try:
+        report = PersistenceService.get_latest_health_report(
+            db=db,
+            system_name="reporting-service",
+            environment="ci",
+        )
+        assert report is not None
+        assert report.reasoning is not None
+        assert report.confidence is not None
+        assert isinstance(report.correlated_events, list)
+        assert isinstance(report.anomalies_detected, list)
+    finally:
+        db.close()

@@ -88,6 +88,10 @@ class PersistenceService:
         health_score: float,
         primary_issue: Optional[str] = None,
         suggestions: Optional[List[str]] = None,
+        reasoning: Optional[Dict[str, Any]] = None,
+        confidence: Optional[float] = None,
+        correlated_events: Optional[List[str]] = None,
+        anomalies_detected: Optional[List[Dict[str, Any]]] = None,
     ) -> HealthReport:
         """Create and persist a health report."""
         report = HealthReport(
@@ -98,6 +102,10 @@ class PersistenceService:
             health_score=health_score,
             primary_issue=primary_issue,
             suggestions=suggestions or [],
+            reasoning=reasoning,
+            confidence=confidence,
+            correlated_events=correlated_events,
+            anomalies_detected=anomalies_detected,
         )
         db.add(report)
         db.commit()

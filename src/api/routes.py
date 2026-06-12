@@ -164,6 +164,7 @@ def generate_report(
     """
     from src.services.reasoning import ReasoningEngine
     from src.services.correlation import CorrelationEngine
+    from src.services.anomaly import AnomalyEngine
     
     system_name = payload.get("system_name")
     environment = payload.get("environment")
@@ -180,10 +181,16 @@ def generate_report(
         limit=100,
     )
     
-    # Extract normalized data
-    normalized_events = [
-        e.normalized for e in events if e.normalized
-    ]
+    # Extract normalized data and retain event IDs for correlation/anomaly references.
+    normalized_events = []
+    for e in events:
+        if not e.normalized:
+            continue
+        normalized = dict(e.normalized)
+        normalized.setdefault("id", e.id)
+        normalized.setdefault("system_name", e.system_name)
+        normalized.setdefault("environment", e.environment)
+        normalized_events.append(normalized)
     
     if not normalized_events:
         return {
@@ -197,14 +204,26 @@ def generate_report(
         }
     
     # Run reasoning engine
-    health_score = ReasoningEngine.compute_health_score(normalized_events)
-    primary_issue = ReasoningEngine.identify_primary_issue(normalized_events)
-    reasoning = ReasoningEngine.generate_reasoning_narrative(normalized_events)
-    suggestions = ReasoningEngine.generate_suggestions(health_score, primary_issue)
+    reasoning_result = ReasoningEngine.evaluate_health(normalized_events)
+    health_score = reasoning_result["health_score"]
+    primary_issue = reasoning_result["primary_issue"]
+    reasoning = reasoning_result["reasoning"]
+    suggestions = reasoning_result["suggestions"]
+    confidence = reasoning_result["confidence"]
     
     # Run correlation engine
     cascades = CorrelationEngine.detect_cascading_failures(normalized_events)
     time_clusters = CorrelationEngine.correlate_by_time_window(normalized_events)
+    anomalies = AnomalyEngine.detect_anomalies(normalized_events)
+
+    correlated_event_ids = sorted(
+        {
+            event.get("id")
+            for cluster in time_clusters
+            for event in cluster
+            if event.get("id")
+        }
+    )
     
     # Determine status
     if health_score >= 0.8:
@@ -223,6 +242,10 @@ def generate_report(
         health_score=health_score,
         primary_issue=primary_issue,
         suggestions=[s.get("action") for s in suggestions],
+        reasoning=reasoning,
+        confidence=confidence,
+        correlated_events=correlated_event_ids,
+        anomalies_detected=anomalies,
     )
     
     # Log audit event
@@ -246,9 +269,11 @@ def generate_report(
         "health_score": health_score,
         "primary_issue": primary_issue,
         "reasoning": reasoning,
+        "confidence": confidence,
         "suggestions": suggestions,
         "cascading_failures": cascades,
         "event_clusters": len(time_clusters),
+        "anomalies": anomalies,
         "created_at": report.created_at.isoformat(),
     }
 

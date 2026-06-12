@@ -15,6 +15,18 @@ class ReasoningEngine:
     """
 
     @staticmethod
+    def _parse_timestamp(value: Any) -> datetime:
+        """Best-effort timestamp parsing for normalized payloads and tests."""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except Exception:
+                return datetime.utcnow()
+        return datetime.utcnow()
+
+    @staticmethod
     def compute_health_score(events: List[Dict[str, Any]]) -> float:
         """
         Compute health score based on recent normalized events.
@@ -34,7 +46,8 @@ class ReasoningEngine:
         
         for event in events:
             # Weight recent events higher
-            event_age_seconds = (now - event.get("timestamp", now)).total_seconds()
+            event_time = ReasoningEngine._parse_timestamp(event.get("timestamp", now))
+            event_age_seconds = (now - event_time).total_seconds()
             recency_weight = max(0, 1.0 - (event_age_seconds / 3600))  # Decay over 1 hour
             
             # Check event type and apply penalties
@@ -173,3 +186,39 @@ class ReasoningEngine:
             })
         
         return suggestions
+
+    @staticmethod
+    def compute_confidence(events: List[Dict[str, Any]], issue: Optional[str]) -> float:
+        """Compute confidence score for this reasoning output."""
+        if not events:
+            return 0.35
+
+        confidence = 0.5
+        evidence_boost = min(0.3, len(events) * 0.02)
+        confidence += evidence_boost
+
+        if issue:
+            confidence += 0.1
+
+        # Blend across diverse signal types (logs, metrics, traces).
+        signal_types = {e.get("type") for e in events if e.get("type")}
+        confidence += min(0.1, len(signal_types) * 0.04)
+
+        return max(0.0, min(1.0, round(confidence, 2)))
+
+    @staticmethod
+    def evaluate_health(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Single-call API returning issue, reasoning, suggestions, and confidence."""
+        score = ReasoningEngine.compute_health_score(events)
+        issue = ReasoningEngine.identify_primary_issue(events)
+        reasoning = ReasoningEngine.generate_reasoning_narrative(events)
+        suggestions = ReasoningEngine.generate_suggestions(score, issue)
+        confidence = ReasoningEngine.compute_confidence(events, issue)
+
+        return {
+            "health_score": score,
+            "primary_issue": issue,
+            "reasoning": reasoning,
+            "suggestions": suggestions,
+            "confidence": confidence,
+        }

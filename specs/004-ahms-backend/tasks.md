@@ -25,11 +25,11 @@
 
 ## Phase 4: [US2] Agentic Reasoning & Detection (Priority: P2)
 
-- [ ] T015 [US2] Prototype reasoning engine in `src/services/reasoning.py` that returns: objective issue, reasoning, suggestions, confidence
-- [ ] T016 [US2] Implement correlation engine `src/services/correlation.py` to link events across sources
-- [ ] T017 [US2] Implement anomaly detectors in `src/services/anomaly.py` (statistical + rule-based hooks)
-- [ ] T018 [US2] Integrate reasoning outputs into health reports and persist in `src/models/health_report.py`
-- [ ] T019 [US2] Add tests for reasoning, correlation, and anomaly detection in `tests/unit/`
+- [x] T015 [US2] Prototype reasoning engine in `src/services/reasoning.py` that returns: objective issue, reasoning, suggestions, confidence
+- [x] T016 [US2] Implement correlation engine `src/services/correlation.py` to link events across sources
+- [x] T017 [US2] Implement anomaly detectors in `src/services/anomaly.py` (statistical + rule-based hooks)
+- [x] T018 [US2] Integrate reasoning outputs into health reports and persist in `src/models/health_report.py`
+- [x] T019 [US2] Add tests for reasoning, correlation, and anomaly detection in `tests/unit/`
 
 ## Phase 5: [US3] Orchestration, Governance & CI Verdicts (Priority: P3)
 
