@@ -260,6 +260,7 @@ function App() {
         environments={environments}
         onEnvironmentChange={setEnvironment}
         lastUpdated={updatedAt}
+        status={healthStatus}
       />
       <PageShell>
         <div className="space-y-10">

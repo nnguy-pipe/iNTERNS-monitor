@@ -1,6 +1,6 @@
 import StatusBadge from '../ui/StatusBadge.jsx';
 
-function TopNav({ environment, environments, onEnvironmentChange, lastUpdated }) {
+function TopNav({ environment, environments, onEnvironmentChange, lastUpdated, status }) {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-8">
@@ -34,7 +34,7 @@ function TopNav({ environment, environments, onEnvironmentChange, lastUpdated })
           </div>
 
           <div className="flex items-center gap-3">
-            <StatusBadge status={environment === 'PROD' ? 'Degraded' : 'Healthy'} />
+            <StatusBadge status={status} />
             <p className="text-sm text-slate-500">Updated {lastUpdated.toLocaleTimeString()}</p>
           </div>
         </div>
