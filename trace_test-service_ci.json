@@ -1,0 +1,71 @@
+[
+  {
+    "timestamp": "2026-06-11T20:35:48.169543",
+    "stage": "FETCH_BASELINE",
+    "message": "No baseline report found (expected for first run)",
+    "data": {}
+  },
+  {
+    "timestamp": "2026-06-11T20:35:48.170572",
+    "stage": "SEND_METRIC",
+    "message": "Sending test metric payload",
+    "data": {
+      "source": "observability",
+      "source_id": "test-metric-1781224548.170477",
+      "event_type": "metric",
+      "timestamp": "2026-06-11T20:35:48.170562",
+      "environment": "ci",
+      "system_name": "test-service",
+      "data": {
+        "metric_name": "cpu_usage_percent",
+        "value": 45.5,
+        "labels": {
+          "host": "test-host",
+          "pod": "test-pod"
+        }
+      }
+    }
+  },
+  {
+    "timestamp": "2026-06-11T20:35:48.208121",
+    "stage": "SEND_METRIC",
+    "message": "Metric ingested successfully: event_id=462be4ac-f115-4dac-969c-6b6014556d61",
+    "data": {
+      "status": "ingested",
+      "event_id": "462be4ac-f115-4dac-969c-6b6014556d61",
+      "timestamp": "2026-06-11T20:35:48.170562"
+    }
+  },
+  {
+    "timestamp": "2026-06-11T20:35:48.213037",
+    "stage": "VERIFY_INGESTION",
+    "message": "Events retrieved: count=2",
+    "data": {
+      "count": 2,
+      "events": [
+        {
+          "id": "462be4ac-f115-4dac-969c-6b6014556d61",
+          "source": "observability",
+          "event_type": "metric",
+          "timestamp": "2026-06-11T20:35:48.170562",
+          "environment": "ci",
+          "system_name": "test-service"
+        },
+        {
+          "id": "b6bd66ed-8efb-424f-9ad6-e07cbdb1148b",
+          "source": "observability",
+          "event_type": "metric",
+          "timestamp": "2026-06-11T20:29:01.538123",
+          "environment": "ci",
+          "system_name": "test-service"
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-06-11T20:35:48.217821",
+    "stage": "FETCH_FINAL",
+    "message": "Error: HTTP 404",
+    "data": {}
+  }
+]

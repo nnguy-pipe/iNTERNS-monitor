@@ -4,12 +4,17 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+import logging
 
 from src.store.sqlite import get_db
 from src.services.persistence import PersistenceService
 from src.services.normalize import NormalizationPipeline
 from src.services.ingest import IngestionHarness
 from src.services.agents import run_all_agents
+
+logger = logging.getLogger(__name__)
+_debug_logger = logging.getLogger(f"{__name__}.debug")
+_debug_logger.setLevel(logging.DEBUG)
 
 # Create router
 router = APIRouter(prefix="/api", tags=["api"])
@@ -36,10 +41,13 @@ def ingest_event(
     }
     ```
     """
+    _debug_logger.debug(f"[API] POST /api/events received: source={payload.get('source')}, event_type={payload.get('event_type')}, system={payload.get('system_name')}")
+    
     try:
         # Validate payload
         is_valid, error = IngestionHarness.validate_event_payload(payload)
         if not is_valid:
+            _debug_logger.warning(f"[API] Event validation failed: {error}")
             raise ValueError(error)
         
         # Create CI event
@@ -55,6 +63,8 @@ def ingest_event(
             correlation_id=payload.get("correlation_id"),
         )
         
+        _debug_logger.debug(f"[API] CI event created: id={event.id}, timestamp={event.timestamp.isoformat()}")
+        
         # Normalize event
         normalized_data = NormalizationPipeline.normalize(
             payload.get("data", {}),
@@ -68,6 +78,9 @@ def ingest_event(
                 normalized_data=normalized_data,
                 status="normalized"
             )
+            _debug_logger.debug(f"[API] Event normalized: id={event.id}")
+        else:
+            _debug_logger.warning(f"[API] Event normalization failed: id={event.id}")
         
         # Log audit event
         PersistenceService.log_audit_event(
@@ -79,12 +92,24 @@ def ingest_event(
             related_event_id=event.id,
         )
         
+        # **NEW**: Automatically trigger report generation after ingestion
+        _debug_logger.debug(f"[API] Triggering report generation for system={payload.get('system_name')}, env={payload.get('environment')}")
+        generate_health_report_internal(
+            db=db,
+            system_name=payload.get("system_name"),
+            environment=payload.get("environment")
+        )
+        
+        _debug_logger.debug(f"[API] Event ingestion complete: event_id={event.id}")
+        
         return {
             "status": "ingested",
             "event_id": event.id,
             "timestamp": event.timestamp.isoformat(),
         }
     except Exception as e:
+        _debug_logger.error(f"[API] Event ingestion failed: {str(e)}")
+        logger.error(f"Event ingestion failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Ingestion failed: {str(e)}")
 
 
@@ -125,13 +150,19 @@ def get_latest_report(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Get the latest health report for a system."""
+    _debug_logger.debug(f"[API] GET /api/reports/latest: system={system_name}, environment={environment}")
+    
     report = PersistenceService.get_latest_health_report(
         db=db,
         system_name=system_name,
         environment=environment,
     )
+    
     if not report:
+        _debug_logger.warning(f"[API] No report found: system={system_name}, environment={environment}")
         raise HTTPException(status_code=404, detail="No report found for this system")
+    
+    _debug_logger.debug(f"[API] Report retrieved: score={report.health_score}, status={report.status}, age={datetime.utcnow() - report.created_at}")
     
     return {
         "id": report.id,
@@ -143,6 +174,116 @@ def get_latest_report(
         "suggestions": report.suggestions,
         "created_at": report.created_at.isoformat(),
     }
+
+
+
+
+def generate_health_report_internal(
+    db: Session,
+    system_name: str,
+    environment: str,
+    lookback_minutes: int = 60,
+) -> Optional[Dict[str, Any]]:
+    """
+    Internal helper to generate health reports (called after ingestion).
+    
+    This function:
+    1. Retrieves recent normalized events
+    2. Runs the reasoning engine to compute health score
+    3. Persists the report to the database
+    
+    Args:
+        db: Database session
+        system_name: Name of the system
+        environment: ci, staging, or production
+        lookback_minutes: How far back to look for events
+        
+    Returns: Generated report dict or None on error
+    """
+    from src.services.reasoning import ReasoningEngine
+    from src.services.correlation import CorrelationEngine
+    
+    try:
+        # Retrieve recent normalized events
+        events = PersistenceService.get_ci_events(
+            db=db,
+            system_name=system_name,
+            environment=environment,
+            limit=100,
+        )
+        
+        # Extract normalized data
+        normalized_events = [
+            e.normalized for e in events if e.normalized
+        ]
+        
+        _debug_logger.debug(f"[REPORT_GEN] Generating report: system={system_name}, env={environment}, events={len(normalized_events)}")
+        
+        if not normalized_events:
+            _debug_logger.debug(f"[REPORT_GEN] No normalized events found, skipping report generation")
+            return None
+        
+        # Run reasoning engine
+        health_score = ReasoningEngine.compute_health_score(normalized_events)
+        primary_issue = ReasoningEngine.identify_primary_issue(normalized_events)
+        reasoning = ReasoningEngine.generate_reasoning_narrative(normalized_events)
+        suggestions = ReasoningEngine.generate_suggestions(health_score, primary_issue)
+        
+        # Run correlation engine
+        cascades = CorrelationEngine.detect_cascading_failures(normalized_events)
+        time_clusters = CorrelationEngine.correlate_by_time_window(normalized_events)
+        
+        # Determine status
+        if health_score >= 0.8:
+            status = "healthy"
+        elif health_score >= 0.5:
+            status = "warning"
+        else:
+            status = "critical"
+        
+        # Persist report
+        report = PersistenceService.create_health_report(
+            db=db,
+            system_name=system_name,
+            environment=environment,
+            status=status,
+            health_score=health_score,
+            primary_issue=primary_issue,
+            suggestions=[s.get("action") for s in suggestions],
+        )
+        
+        _debug_logger.debug(f"[REPORT_GEN] Report persisted: id={report.id}, score={health_score:.2f}, status={status}")
+        
+        # Log audit event
+        PersistenceService.log_audit_event(
+            db=db,
+            event_type="reasoning",
+            system_name=system_name,
+            environment=environment,
+            event_data={
+                "score": health_score,
+                "events_analyzed": len(normalized_events),
+            },
+            related_report_id=report.id,
+        )
+        
+        return {
+            "id": report.id,
+            "system_name": system_name,
+            "environment": environment,
+            "status": status,
+            "health_score": health_score,
+            "primary_issue": primary_issue,
+            "reasoning": reasoning,
+            "suggestions": suggestions,
+            "cascading_failures": cascades,
+            "event_clusters": len(time_clusters),
+            "created_at": report.created_at.isoformat(),
+        }
+    except Exception as e:
+        _debug_logger.error(f"[REPORT_GEN] Report generation failed: {str(e)}")
+        logger.error(f"Report generation failed: {str(e)}")
+        return None
 
 
 @router.post("/reports/generate", tags=["reports"])
@@ -482,6 +623,14 @@ def ingest_simulator_metrics(
             environment=environment,
             event_data={"event_id": ingested_event.id, "source": "infrastructure_simulator"},
             related_event_id=ingested_event.id,
+        )
+
+        # Keep simulator ingestion behavior aligned with /api/events by generating
+        # the latest report immediately after successful normalization.
+        generate_health_report_internal(
+            db=db,
+            system_name=system_name,
+            environment=environment,
         )
         
         return {

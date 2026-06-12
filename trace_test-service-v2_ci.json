@@ -1,0 +1,72 @@
+[
+  {
+    "timestamp": "2026-06-11T20:30:34.977660",
+    "stage": "FETCH_BASELINE",
+    "message": "No baseline report found (expected for first run)",
+    "data": {}
+  },
+  {
+    "timestamp": "2026-06-11T20:30:34.978003",
+    "stage": "SEND_METRIC",
+    "message": "Sending test metric payload",
+    "data": {
+      "source": "observability",
+      "source_id": "test-metric-1781224234.97795",
+      "event_type": "metric",
+      "timestamp": "2026-06-11T20:30:34.977996",
+      "environment": "ci",
+      "system_name": "test-service-v2",
+      "data": {
+        "metric_name": "cpu_usage_percent",
+        "value": 45.5,
+        "labels": {
+          "host": "test-host",
+          "pod": "test-pod"
+        }
+      }
+    }
+  },
+  {
+    "timestamp": "2026-06-11T20:30:35.019427",
+    "stage": "SEND_METRIC",
+    "message": "Metric ingested successfully: event_id=f18b6b6e-7546-48b5-a61c-83adb041002c",
+    "data": {
+      "status": "ingested",
+      "event_id": "f18b6b6e-7546-48b5-a61c-83adb041002c",
+      "timestamp": "2026-06-11T20:30:34.977996"
+    }
+  },
+  {
+    "timestamp": "2026-06-11T20:30:35.022957",
+    "stage": "VERIFY_INGESTION",
+    "message": "Events retrieved: count=1",
+    "data": {
+      "count": 1,
+      "events": [
+        {
+          "id": "f18b6b6e-7546-48b5-a61c-83adb041002c",
+          "source": "observability",
+          "event_type": "metric",
+          "timestamp": "2026-06-11T20:30:34.977996",
+          "environment": "ci",
+          "system_name": "test-service-v2"
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-06-11T20:30:35.026394",
+    "stage": "FETCH_FINAL",
+    "message": "Final report retrieved: score=1.0, changed=False",
+    "data": {
+      "id": "3d25c638-10cb-4353-83a3-4fce3ba6a6fa",
+      "system_name": "test-service-v2",
+      "environment": "ci",
+      "status": "healthy",
+      "health_score": 1.0,
+      "primary_issue": null,
+      "suggestions": [],
+      "created_at": "2026-06-11T20:30:35"
+    }
+  }
+]

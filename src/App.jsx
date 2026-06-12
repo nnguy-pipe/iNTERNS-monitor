@@ -10,7 +10,7 @@ import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
-import { fetchAgentChecks } from './utils/api.js';
+import { fetchAgentChecks, fetchLatestReport, ingestSimulatorMetrics } from './utils/api.js';
 
 const environments = ['CI', 'PROD'];
 
@@ -25,6 +25,14 @@ const AGENT_META = {
 
 const STATUS_LABEL = { healthy: 'Healthy', warning: 'Warning', critical: 'Critical', unknown: 'Unknown' };
 const STATUS_CONFIDENCE = { healthy: 97, warning: 72, critical: 38, unknown: 50 };
+const SCORE_SYSTEM_NAME = 'iMonitor';
+
+function mapReportStatus(status) {
+  if (status === 'healthy') return 'Healthy';
+  if (status === 'warning') return 'Degraded';
+  if (status === 'critical') return 'Critical';
+  return 'Degraded';
+}
 
 function formatLastChecked(isoTimestamp) {
   try {
@@ -62,40 +70,53 @@ function App() {
   const [apiMetrics, setApiMetrics] = useState(null);
   const [health, setHealth] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
+  const [backendReports, setBackendReports] = useState({ CI: null, PROD: null });
+  const [scoreSources, setScoreSources] = useState({ CI: 'fallback', PROD: 'fallback' });
   const [loading, setLoading] = useState(true);
 
   // fetch/ load data function
   async function loadData() {
       setLoading(true);
 
-      const [healthRes, metricsRes] = await Promise.all([
-        // update to not be hardcoded, but for demo purposes this is fine
-        fetch("http://localhost:8000/api/simulator/health").then(r => r.json()),
-        fetch("http://localhost:8000/api/simulator/metrics").then(r => r.json())
-      ]);
+      try {
+        const [healthRes, metricsRes] = await Promise.all([
+          fetch('http://localhost:8000/api/simulator/health').then((r) => r.json()),
+          fetch('http://localhost:8000/api/simulator/metrics').then((r) => r.json()),
+        ]);
 
-      setHealth(healthRes);
-      setApiMetrics(metricsRes);
-      // Convert subsystems object → array
-      const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
-        ([name, stats]) => ({ name, ...stats })
-      );
+        setHealth(healthRes);
+        setApiMetrics(metricsRes);
 
-      setSubsystems(subsystemAgents);
-      setLoading(false);
+        // Convert subsystems object -> array
+        const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
+          ([name, stats]) => ({ name, ...stats }),
+        );
+        setSubsystems(subsystemAgents);
+
+        try {
+          await ingestSimulatorMetrics(SCORE_SYSTEM_NAME, environment);
+          const latestReport = await fetchLatestReport(SCORE_SYSTEM_NAME, environment);
+          setBackendReports((prev) => ({ ...prev, [environment]: latestReport }));
+          setScoreSources((prev) => ({ ...prev, [environment]: 'backend' }));
+        } catch {
+          if (!backendReports[environment]) {
+            setScoreSources((prev) => ({ ...prev, [environment]: 'fallback' }));
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
   }
   useEffect(() => {
     loadData();
-  }, [environment]);
 
-  useEffect(() => {
     const timer = setInterval(() => {
       loadData();
       setUpdatedAt(new Date());
     }, pollingInterval);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [environment]);
 
   // Poll backend agent checks; fall back silently to mock data when unavailable
   useEffect(() => {
@@ -118,23 +139,42 @@ function App() {
     return () => { active = false; clearInterval(id); };
   }, []);
 
-  const activeAlerts = mockAlerts[environment] || [];
-  const currentAgents = liveAgents || mockAgents[environment] || [];
-  const report = mockReports[environment];
-  const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
   const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
+  const skills = mockSkills[environment] || [];
+  const backendReport = backendReports[environment];
+  const scoreSource = scoreSources[environment];
   const activeAlerts = healthSnapshot.alerts;
-  const report = {
+  const fallbackReport = {
     healthScore: healthSnapshot.healthScore,
     result: healthSnapshot.result,
     summary: healthSnapshot.summary,
     areasOfConcern: healthSnapshot.areasOfConcern,
     suggestedImprovements: healthSnapshot.suggestedImprovements,
   };
-  const healthStatus = healthSnapshot.status;
-  const healthScore = healthSnapshot.healthScore;
-  const summary = healthSnapshot.summary;
+
+  const backendHealthScore = backendReport
+    ? Math.round((Number(backendReport.health_score) || 0) * 100)
+    : null;
+
+  const report = backendReport
+    ? {
+        healthScore: backendHealthScore,
+        result: `Latest backend report for ${environment}.`,
+        summary: backendReport.primary_issue || 'No primary issue reported by backend.',
+        areasOfConcern: backendReport.primary_issue ? [backendReport.primary_issue] : ['No active concerns'],
+        suggestedImprovements:
+          Array.isArray(backendReport.suggestions) && backendReport.suggestions.length
+            ? backendReport.suggestions
+            : ['Continue monitoring backend telemetry ingestion.'],
+      }
+    : fallbackReport;
+
+  const healthStatus = backendReport ? mapReportStatus(backendReport.status) : healthSnapshot.status;
+  const healthScore = backendReport ? backendHealthScore : healthSnapshot.healthScore;
+  const summary = backendReport
+    ? backendReport.primary_issue || 'Backend report available and up to date.'
+    : healthSnapshot.summary;
 
 
   useEffect(() => {
@@ -161,6 +201,7 @@ function App() {
             activeAlerts={activeAlerts.length}
             environment={environment}
             summary={summary}
+            scoreSource={scoreSource}
           />
 
           <section id="agents" className="space-y-6">
