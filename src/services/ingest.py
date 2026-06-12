@@ -6,6 +6,10 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# Configure debug logging for pipeline tracing
+_debug_logger = logging.getLogger(f"{__name__}.debug")
+_debug_logger.setLevel(logging.DEBUG)
+
 
 class IngestionHarness:
     """
@@ -25,30 +29,38 @@ class IngestionHarness:
         
         Returns: (is_valid, error_message)
         """
+        _debug_logger.debug(f"[INGEST] Validating event payload: source={payload.get('source')}, event_type={payload.get('event_type')}, data_keys={list(payload.get('data', {}).keys())}")
+        
         required_fields = ["source", "source_id", "event_type", "timestamp", "environment", "data"]
         
         for field in required_fields:
             if field not in payload:
+                _debug_logger.warning(f"[INGEST] Validation failed: Missing required field: {field}")
                 return False, f"Missing required field: {field}"
         
         # Validate field values
         valid_sources = ["observability", "workflow", "batch", "business"]
         if payload.get("source") not in valid_sources:
+            _debug_logger.warning(f"[INGEST] Validation failed: Invalid source: {payload.get('source')}")
             return False, f"Invalid source: {payload.get('source')}"
         
         valid_event_types = ["metric", "log", "trace", "business_event"]
         if payload.get("event_type") not in valid_event_types:
+            _debug_logger.warning(f"[INGEST] Validation failed: Invalid event_type: {payload.get('event_type')}")
             return False, f"Invalid event_type: {payload.get('event_type')}"
         
         valid_environments = ["ci", "staging", "production"]
         if payload.get("environment") not in valid_environments:
+            _debug_logger.warning(f"[INGEST] Validation failed: Invalid environment: {payload.get('environment')}")
             return False, f"Invalid environment: {payload.get('environment')}"
         
         try:
             datetime.fromisoformat(payload.get("timestamp"))
         except (ValueError, TypeError):
+            _debug_logger.warning(f"[INGEST] Validation failed: Invalid timestamp format: {payload.get('timestamp')}")
             return False, f"Invalid timestamp format: {payload.get('timestamp')}"
         
+        _debug_logger.debug(f"[INGEST] Event payload validation passed")
         return True, None
 
     @staticmethod

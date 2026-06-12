@@ -6,6 +6,10 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Configure debug logging for pipeline tracing
+_debug_logger = logging.getLogger(f"{__name__}.debug")
+_debug_logger.setLevel(logging.DEBUG)
+
 
 class NormalizationPipeline:
     """MVP normalization - handles metrics, logs, and basic events."""
@@ -17,18 +21,28 @@ class NormalizationPipeline:
         
         Returns normalized data or None if normalization fails.
         """
+        _debug_logger.debug(f"[NORMALIZE] Starting normalization: event_type={event_type}, data_keys={list(event_data.keys())}")
+        
         try:
             if event_type == "metric":
-                return NormalizationPipeline._normalize_metric(event_data)
+                result = NormalizationPipeline._normalize_metric(event_data)
+                _debug_logger.debug(f"[NORMALIZE] Metric normalized: name={result.get('name')}, value={result.get('value')}, timestamp={result.get('timestamp')}")
+                return result
             elif event_type == "log":
-                return NormalizationPipeline._normalize_log(event_data)
+                result = NormalizationPipeline._normalize_log(event_data)
+                _debug_logger.debug(f"[NORMALIZE] Log normalized: level={result.get('level')}, message={result.get('message')[:50]}, timestamp={result.get('timestamp')}")
+                return result
             elif event_type == "trace":
-                return NormalizationPipeline._normalize_trace(event_data)
+                result = NormalizationPipeline._normalize_trace(event_data)
+                _debug_logger.debug(f"[NORMALIZE] Trace normalized: operation={result.get('operation')}, duration_ms={result.get('duration_ms')}, status={result.get('status')}")
+                return result
             else:
                 # Pass through business events as-is
+                _debug_logger.debug(f"[NORMALIZE] Business event passed through as-is")
                 return event_data
         except Exception as e:
-            logger.error(f"Normalization failed: {e}")
+            logger.error(f"Normalization failed for event_type={event_type}: {e}")
+            _debug_logger.error(f"[NORMALIZE] FAILED: event_type={event_type}, error={str(e)}")
             return None
 
     @staticmethod
