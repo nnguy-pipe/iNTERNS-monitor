@@ -68,7 +68,7 @@ function MetricsPanel({ subsystems }) {
                 <XAxis dataKey="time" interval={0} tick={{ fill: '#475569' }} tickMargin={2} />
                 <YAxis tick={{ fill: '#475569' }} domain={[0, 100]} tickMargin={2} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={3} dot={false} />
+                <Line type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={3} dot={false} unit={"%"} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -83,7 +83,7 @@ function MetricsPanel({ subsystems }) {
                 <XAxis dataKey="time" interval={0} tick={{ fill: '#475569' }} tickMargin={2} />
                 <YAxis tick={{ fill: '#475569' }} domain={[0, 8000]} tickMargin={2} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={false} />
+                <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={false} unit={"MB"}/>
               </LineChart>
             </ResponsiveContainer>
           </div>

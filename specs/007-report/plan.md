@@ -13,6 +13,8 @@ Enable report exports directly from the dashboard workflow by wiring **Open repo
    - Download XML (from `/api/simulator/export/xml`)
 3. Export feedback is surfaced in UI with loading/success/error states.
 4. Duplicate concurrent export requests are blocked per format.
+5. PDF export should read like the dashboard, with clear sections, recent CPU/RAM telemetry, and readable timestamps.
+6. Add automated tests for report navigation, export downloads, timestamp formatting, and duplicate-request/error handling.
 
 ## Key Technical Notes
 

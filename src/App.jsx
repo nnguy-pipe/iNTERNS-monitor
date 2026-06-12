@@ -11,6 +11,13 @@ import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.js
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
 import { API_BASE, fetchAgentChecks } from './utils/api.js';
+import {
+  buildReportPdfBlob,
+  buildTelemetrySnapshot,
+  formatExportTimestamp,
+  formatReadableTimestamp,
+  openReportSection,
+} from './utils/reportExport.js';
 
 const environments = ['CI', 'PROD'];
 
@@ -84,11 +91,6 @@ function App() {
   const summary = healthSnapshot.summary;
   const skills = mockSkills[environment] || [];
 
-  function toExportTimestamp(date = new Date()) {
-    const pad = (value) => String(value).padStart(2, '0');
-    return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  }
-
   function triggerDownload(blob, filename) {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -100,59 +102,6 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
-  function escapePdfText(text) {
-    return String(text).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-  }
-
-  function buildReportPdfBlob(timestamp, snapshot) {
-    const lines = [
-      `iNTERNS Monitor Report (${snapshot.environment})`,
-      `Generated: ${timestamp}`,
-      `Health score: ${snapshot.healthScore}/100`,
-      `Result: ${snapshot.result}`,
-      `Summary: ${snapshot.summary}`,
-      '',
-      'Areas of concern:',
-      ...(snapshot.areasOfConcern.length ? snapshot.areasOfConcern.map((item) => `- ${item}`) : ['- None']),
-      '',
-      'Suggested improvements:',
-      ...(snapshot.suggestedImprovements.length ? snapshot.suggestedImprovements.map((item) => `- ${item}`) : ['- None']),
-    ];
-
-    const textOps = [];
-    let y = 780;
-    for (const line of lines) {
-      textOps.push(`1 0 0 1 40 ${y} Tm (${escapePdfText(line)}) Tj`);
-      y -= 18;
-    }
-
-    const stream = `BT\n/F1 12 Tf\n${textOps.join('\n')}\nET`;
-    const objects = [];
-    const offsets = [0];
-
-    objects.push('<< /Type /Catalog /Pages 2 0 R >>');
-    objects.push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-    objects.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>');
-    objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-    objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-
-    let pdf = '%PDF-1.4\n';
-    objects.forEach((object, index) => {
-      offsets.push(pdf.length);
-      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-    });
-
-    const xrefOffset = pdf.length;
-    pdf += `xref\n0 ${objects.length + 1}\n`;
-    pdf += '0000000000 65535 f \n';
-    for (let i = 1; i < offsets.length; i += 1) {
-      pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-    }
-    pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-    return new Blob([pdf], { type: 'application/pdf' });
-  }
-
   function setExportBusy(format, isBusy) {
     setReportExportBusy((current) => ({ ...current, [format]: isBusy }));
   }
@@ -162,13 +111,9 @@ function App() {
   }
 
   function openReport() {
-    const reportSection = document.getElementById('reports');
-    if (!reportSection) {
+    if (!openReportSection(document)) {
       setExportMessage('error', 'Report section is not available right now.');
-      return;
     }
-    reportSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    reportSection.focus({ preventScroll: true });
   }
 
   const reportSnapshot = useMemo(
@@ -179,18 +124,25 @@ function App() {
       summary: healthSnapshot.summary,
       areasOfConcern: healthSnapshot.areasOfConcern,
       suggestedImprovements: healthSnapshot.suggestedImprovements,
+      telemetrySnapshot: buildTelemetrySnapshot(subsystems),
     }),
-    [environment, healthSnapshot]
+    [environment, healthSnapshot, subsystems]
   );
 
   async function downloadPdfReport() {
     if (reportExportBusy.pdf) return;
-    const timestamp = toExportTimestamp();
+    const exportMoment = new Date();
+    const timestamp = formatExportTimestamp(exportMoment);
     setExportBusy('pdf', true);
     try {
-      const blob = buildReportPdfBlob(timestamp, reportSnapshot);
+      const blob = buildReportPdfBlob({
+        environment,
+        generatedAt: exportMoment,
+        report: reportSnapshot,
+        telemetrySnapshot: reportSnapshot.telemetrySnapshot,
+      });
       triggerDownload(blob, `report-${environment.toLowerCase()}-${timestamp}.pdf`);
-      setExportMessage('success', `PDF download started (${timestamp}).`);
+      setExportMessage('success', `PDF download started (${formatReadableTimestamp(exportMoment)}).`);
     } finally {
       setExportBusy('pdf', false);
     }
@@ -198,7 +150,7 @@ function App() {
 
   async function downloadSimulatorJson() {
     if (reportExportBusy.json) return;
-    const timestamp = toExportTimestamp();
+    const timestamp = formatExportTimestamp();
     setExportBusy('json', true);
     try {
       const response = await fetch(`${API_BASE}/api/simulator/export/json`, { method: 'GET' });
@@ -218,7 +170,7 @@ function App() {
 
   async function downloadSimulatorXml() {
     if (reportExportBusy.xml) return;
-    const timestamp = toExportTimestamp();
+    const timestamp = formatExportTimestamp();
     setExportBusy('xml', true);
     try {
       const response = await fetch(`${API_BASE}/api/simulator/export/xml`, { method: 'GET' });
