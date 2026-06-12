@@ -3,6 +3,7 @@ import TopNav from './components/layout/TopNav.jsx';
 import PageShell from './components/layout/PageShell.jsx';
 import HealthSummary from './components/dashboard/HealthSummary.jsx';
 import AgentGrid from './components/dashboard/AgentGrid.jsx';
+import CIAgentView from './components/dashboard/CIAgentView.jsx';
 import MetricsPanel from './components/dashboard/MetricsPanel.jsx';
 import AlertsFeed from './components/dashboard/AlertsFeed.jsx';
 import AlertDetailsDrawer from './components/dashboard/AlertDetailsDrawer.jsx';
@@ -451,7 +452,9 @@ function App() {
   }, [environment]);
 
   const activeAlerts = liveAlerts;
-  const currentAgents = liveAgents ||  [];
+  const allAgents = liveAgents || [];
+  const ciAgent = allAgents.find((a) => a.name === 'CI/CD Agent');
+  const currentAgents = environment === 'CI' ? [] : allAgents;
   const report = liveReport;
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -537,14 +540,20 @@ function App() {
           />
 
           <section id="agents" className="space-y-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Agent status</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Monitoring agents</h2>
-              </div>
-              <p className="text-sm text-slate-500">Current environment: {environment}</p>
-            </div>
-            <AgentGrid agents={currentAgents} />
+            {environment === 'CI' ? (
+              <CIAgentView ciAgent={ciAgent} />
+            ) : (
+              <>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-600">Agent status</p>
+                    <h2 className="mt-2 text-2xl font-semibold text-slate-900">Monitoring agents</h2>
+                  </div>
+                  <p className="text-sm text-slate-500">Current environment: {environment}</p>
+                </div>
+                <AgentGrid agents={currentAgents} />
+              </>
+            )}
           </section>
 
           <AlertsFeed alerts={activeAlerts} onSelectAlert={setSelectedAlert} />

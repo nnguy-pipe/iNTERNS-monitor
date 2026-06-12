@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import MetricCard from '../ui/MetricCard.jsx';
-import { fetchSimulatorMetrics } from '../../utils/api.js';
 
 // 2× sum of default subsystem base RAM values (web=512, app=256, db=1024, cache=512 → 2304 MB)
 const SIM_MAX_RAM_MB = 4608;
