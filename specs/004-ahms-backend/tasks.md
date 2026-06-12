@@ -33,17 +33,17 @@
 
 ## Phase 5: [US3] Orchestration, Governance & CI Verdicts (Priority: P3)
 
-- [ ] T020 [US3] Implement action orchestration skeleton in `src/services/orchestrator.py` (approve/execute/rollback)
-- [ ] T021 [US3] Implement governance rules and approvals storage in `src/services/governance.py`
-- [ ] T022 [US3] Implement audit ledger writes for all decisions in `src/services/audit.py`
-- [ ] T023 [US3] Expose CI evaluation API `POST /api/ci/evaluate` in `src/api/routes.py` returning `pass|warn|fail` with machine-readable rationale
-- [ ] T024 [P] [US3] Add integration tests for orchestration and CI evaluation in `tests/integration/`
+- [x] T020 [US3] Implement action orchestration skeleton in `src/services/orchestrator.py` (approve/execute/rollback)
+- [x] T021 [US3] Implement governance rules and approvals storage in `src/services/governance.py`
+- [x] T022 [US3] Implement audit ledger writes for all decisions in `src/services/audit.py`
+- [x] T023 [US3] Expose CI evaluation API `POST /api/ci/evaluate` in `src/api/routes.py` returning `pass|warn|fail` with machine-readable rationale
+- [x] T024 [P] [US3] Add integration tests for orchestration and CI evaluation in `tests/integration/`
 
 ## Final Phase: Polish & Handoff
 
-- [ ] T025 Create `specs/004-ahms-backend/contracts/report-api.md` hook contract and ensure routes are documented
-- [ ] T026 Write `specs/004-ahms-backend/quickstart.md` with run instructions and example CI call
-- [ ] T027 Security review and add SAST/secret-scan to CI
+- [x] T025 Create `specs/004-ahms-backend/contracts/report-api.md` hook contract and ensure routes are documented
+- [x] T026 Write `specs/004-ahms-backend/quickstart.md` with run instructions and example CI call
+- [x] T027 Security review and add SAST/secret-scan to CI
 
 ## Dependencies
 

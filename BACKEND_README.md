@@ -136,6 +136,18 @@ Environment variables (see `.env.example`):
 - Audit logging
 - CI evaluation API
 
+### Final Phase: Polish & Handoff
+- Report API contract: `specs/004-ahms-backend/contracts/report-api.md`
+- Backend quickstart: `specs/004-ahms-backend/quickstart.md`
+- Security scanning in CI (Bandit + Gitleaks)
+
+## Key Report Endpoints
+
+- POST /api/reports/generate
+- GET /api/reports/latest
+- GET /api/reports/user (json or markdown)
+- POST /api/reports/user/generate (one-shot generation + user report output)
+
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR:

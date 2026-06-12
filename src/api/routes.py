@@ -10,6 +10,7 @@ from src.services.persistence import PersistenceService
 from src.services.normalize import NormalizationPipeline
 from src.services.ingest import IngestionHarness
 from src.services.agents import run_all_agents
+from src.services.audit import AuditService
 
 # Create router
 router = APIRouter(prefix="/api", tags=["api"])
@@ -142,6 +143,92 @@ def get_latest_report(
         "primary_issue": report.primary_issue,
         "suggestions": report.suggestions,
         "created_at": report.created_at.isoformat(),
+    }
+
+
+@router.get("/reports/user", tags=["reports"])
+def generate_user_report(
+    system_name: str = Query(..., description="System to retrieve report for"),
+    environment: str = Query(..., description="Environment (ci, staging, production)"),
+    format: str = Query("json", description="Output format: json or markdown"),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Generate a user-facing health report from the latest assessment."""
+    report = PersistenceService.get_latest_health_report(
+        db=db,
+        system_name=system_name,
+        environment=environment,
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="No report found for this system")
+
+    suggestions = report.suggestions or []
+    reasoning = report.reasoning or {}
+    anomalies = report.anomalies_detected or []
+    correlated_events = report.correlated_events or []
+
+    base_report = {
+        "id": report.id,
+        "system_name": report.system_name,
+        "environment": report.environment,
+        "status": report.status,
+        "health_score": report.health_score,
+        "confidence": report.confidence,
+        "primary_issue": report.primary_issue,
+        "suggestions": suggestions,
+        "reasoning": reasoning,
+        "anomalies": anomalies,
+        "correlated_events": correlated_events,
+        "created_at": report.created_at.isoformat(),
+    }
+
+    output_format = format.strip().lower()
+    if output_format not in {"json", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be one of: json, markdown")
+
+    if output_format == "json":
+        return base_report
+
+    reasoning_lines = reasoning.get("reasoning_chain") if isinstance(reasoning, dict) else []
+    markdown_lines = [
+        f"# AHMS Health Report: {report.system_name}",
+        "",
+        f"- Environment: {report.environment}",
+        f"- Status: {report.status}",
+        f"- Health Score: {report.health_score}",
+        f"- Confidence: {report.confidence}",
+        f"- Generated At: {report.created_at.isoformat()}",
+        "",
+        "## Primary Issue",
+        report.primary_issue or "No primary issue identified.",
+        "",
+        "## Suggestions",
+    ]
+
+    if suggestions:
+        markdown_lines.extend([f"- {item}" for item in suggestions])
+    else:
+        markdown_lines.append("- No remediation suggestions generated.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Reasoning")
+    if reasoning_lines:
+        markdown_lines.extend([f"- {item}" for item in reasoning_lines])
+    else:
+        markdown_lines.append("- No reasoning chain available.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Correlations")
+    markdown_lines.append(f"- Correlated events: {len(correlated_events)}")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Anomalies")
+    markdown_lines.append(f"- Detected anomalies: {len(anomalies)}")
+
+    return {
+        **base_report,
+        "format": "markdown",
+        "report_markdown": "\n".join(markdown_lines),
     }
 
 
@@ -278,6 +365,76 @@ def generate_report(
     }
 
 
+@router.post("/reports/user/generate", tags=["reports"])
+def generate_user_report_on_demand(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Generate a report and return user-oriented output in one call."""
+    output_format = str(payload.get("format", "markdown")).strip().lower()
+    if output_format not in {"json", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be one of: json, markdown")
+
+    generated = generate_report(payload=payload, db=db)
+
+    if output_format == "json":
+        return generated
+
+    suggestions = generated.get("suggestions") or []
+    suggestion_lines = []
+    for item in suggestions:
+        if isinstance(item, dict):
+            suggestion_lines.append(f"- {item.get('action', 'No action provided')}")
+        else:
+            suggestion_lines.append(f"- {item}")
+
+    reasoning = generated.get("reasoning") or {}
+    reasoning_chain = reasoning.get("reasoning_chain") if isinstance(reasoning, dict) else []
+    anomalies = generated.get("anomalies") or []
+
+    markdown_lines = [
+        f"# AHMS Health Report: {generated.get('system_name')}",
+        "",
+        f"- Environment: {generated.get('environment')}",
+        f"- Status: {generated.get('status')}",
+        f"- Health Score: {generated.get('health_score')}",
+        f"- Confidence: {generated.get('confidence')}",
+        f"- Generated At: {generated.get('created_at')}",
+        "",
+        "## Primary Issue",
+        str(generated.get("primary_issue") or "No primary issue identified."),
+        "",
+        "## Suggestions",
+    ]
+
+    if suggestion_lines:
+        markdown_lines.extend(suggestion_lines)
+    else:
+        markdown_lines.append("- No remediation suggestions generated.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Reasoning")
+    if reasoning_chain:
+        markdown_lines.extend([f"- {line}" for line in reasoning_chain])
+    else:
+        markdown_lines.append("- No reasoning chain available.")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Correlations")
+    markdown_lines.append(f"- Event clusters: {generated.get('event_clusters')}")
+    markdown_lines.append(f"- Cascading patterns: {len(generated.get('cascading_failures') or [])}")
+
+    markdown_lines.append("")
+    markdown_lines.append("## Anomalies")
+    markdown_lines.append(f"- Detected anomalies: {len(anomalies)}")
+
+    return {
+        **generated,
+        "format": "markdown",
+        "report_markdown": "\n".join(markdown_lines),
+    }
+
+
 @router.post("/ci/evaluate", tags=["ci-evaluation"])
 def ci_evaluate(
     payload: Dict[str, Any],
@@ -311,16 +468,41 @@ def ci_evaluate(
     
     if not report:
         verdict = "warn"
-        rationale = "No health data available"
+        rationale = {
+            "summary": "No health data available",
+            "reason_code": "NO_HEALTH_REPORT",
+            "health_score": None,
+            "primary_issue": None,
+            "report_id": None,
+        }
     else:
         if report.health_score >= 0.8:
             verdict = "pass"
+            reason_code = "HEALTHY_SCORE"
         elif report.health_score >= 0.5:
             verdict = "warn"
+            reason_code = "DEGRADED_SCORE"
         else:
             verdict = "fail"
-        rationale = report.primary_issue or "Health assessment complete"
-    
+            reason_code = "CRITICAL_SCORE"
+
+        rationale = {
+            "summary": report.primary_issue or "Health assessment complete",
+            "reason_code": reason_code,
+            "health_score": report.health_score,
+            "primary_issue": report.primary_issue,
+            "report_id": report.id,
+        }
+
+    AuditService.log_ci_verdict(
+        db=db,
+        system_name=system_name,
+        environment=environment,
+        verdict=verdict,
+        rationale=rationale,
+        related_report_id=rationale.get("report_id"),
+    )
+
     return {
         "system_name": system_name,
         "environment": environment,
