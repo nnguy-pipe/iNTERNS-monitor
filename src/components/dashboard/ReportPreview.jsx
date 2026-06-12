@@ -1,4 +1,12 @@
-function ReportPreview({ report }) {
+function ReportPreview({
+  report,
+  onDownloadPdf = () => {},
+  onDownloadJson = () => {},
+  onDownloadXml = () => {},
+  exportStatus = { busy: { pdf: false, json: false, xml: false } },
+  statusText = '',
+  statusTone = 'text-slate-500',
+}) {
   const concerns = report?.areasOfConcern || [];
   const improvements = report?.suggestedImprovements || [];
   const attachedReport = report?.attachedReport || '';

@@ -1,14 +1,6 @@
 import StatusBadge from '../ui/StatusBadge.jsx';
 
-function HealthSummary({
-  status,
-  score,
-  activeAlerts,
-  environment,
-  summary,
-  scoreSource = 'backend',
-  onOpenReport,
-}) {
+
 function HealthSummary({
   status,
   score,

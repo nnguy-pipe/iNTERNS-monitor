@@ -8,7 +8,6 @@ import AlertsFeed from './components/dashboard/AlertsFeed.jsx';
 import AlertDetailsDrawer from './components/dashboard/AlertDetailsDrawer.jsx';
 import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
-import mockAgents from './data/mockAgents.js';
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
 import { API_BASE, fetchAgentChecks, fetchSimulatorMetrics, fetchUserReport } from './utils/api.js';
@@ -230,20 +229,8 @@ function App() {
     xml: false,
   });
   const [exportFeedback, setExportFeedback] = useState({ type: 'idle', message: '' });
-  const [selectedAlert, setSelectedAlert] = useState(null);
   const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
-  const activeAlerts = healthSnapshot.alerts;
-  const report = {
-    healthScore: healthSnapshot.healthScore,
-    result: healthSnapshot.result,
-    summary: healthSnapshot.summary,
-    areasOfConcern: healthSnapshot.areasOfConcern,
-    suggestedImprovements: healthSnapshot.suggestedImprovements,
-  };
-  const healthStatus = healthSnapshot.status;
-  const healthScore = healthSnapshot.healthScore;
-  const summary = healthSnapshot.summary;
-  const skills = mockSkills[environment] || [];
+  const [healthStatus, setHealthStatus] = useState(healthSnapshot.status || 'Unknown');
 
   function triggerDownload(blob, filename) {
     const link = document.createElement('a');
@@ -449,7 +436,7 @@ function App() {
   }, [environment]);
 
   const activeAlerts = liveAlerts;
-  const currentAgents = liveAgents || mockAgents[environment] || [];
+  const currentAgents = liveAgents ||  [];
   const report = liveReport;
   const skills = mockSkills[environment] || [];
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -464,23 +451,22 @@ function App() {
     }
   }, [environment, activeAlerts]);
 
-  // Derive health status from agents/alerts for demo storytelling
-  const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
-  const hasHighAlert = activeAlerts.some((a) => a.severity === 'High');
-  const hasCriticalAgent = currentAgents.some((ag) => ag.status === 'Critical');
+  // // Derive health status from agents/alerts for demo storytelling
+  // const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
+  // const hasHighAlert = activeAlerts.some((a) => a.severity === 'High');
+  // const hasCriticalAgent = currentAgents.some((ag) => ag.status === 'Critical');
 
-  let healthStatus = 'Healthy';
-  if (report?.backendStatus) {
-    healthStatus = BACKEND_STATUS_TO_UI[report.backendStatus] || 'Healthy';
-  } else if (hasCriticalAlert || hasCriticalAgent) {
-    healthStatus = 'Critical';
-  } else if (hasHighAlert || currentAgents.some((ag) => ag.status === 'Degraded' || ag.status === 'Warning')) {
-    healthStatus = 'Degraded';
-  }
+  // if (report?.backendStatus) {
+  //   healthStatus = BACKEND_STATUS_TO_UI[report.backendStatus] || 'Healthy';
+  // } else if (hasCriticalAlert || hasCriticalAgent) {
+  //   healthStatus = 'Critical';
+  // } else if (hasHighAlert || currentAgents.some((ag) => ag.status === 'Degraded' || ag.status === 'Warning')) {
+  //   healthStatus = 'Degraded';
+  // }
 
-  if (liveTelemetryStatus) {
-    healthStatus = maxStatus(healthStatus, liveTelemetryStatus);
-  }
+  const overallHealthStatus = liveTelemetryStatus
+    ? maxStatus(healthStatus, liveTelemetryStatus)
+    : healthStatus;
 
   const healthScore = report?.healthScore ?? Math.round(((apiMetrics?.subsystems
     ? Object.values(apiMetrics.subsystems).reduce((sum, row) => sum + Number(row?.cpu || 0), 0) /
@@ -521,7 +507,7 @@ function App() {
         environments={environments}
         onEnvironmentChange={setEnvironment}
         lastUpdated={updatedAt}
-        overallStatus={healthStatus}
+        overallStatus={overallHealthStatus}
       />
       <PageShell>
         <div className="space-y-10">
@@ -560,7 +546,20 @@ function App() {
                 correlatedEvents: [],
                 anomalyItems: [],
                 attachedReport: '',
-              }} />
+              }}
+              onDownloadPdf={downloadPdfReport}
+              onDownloadJson={downloadSimulatorJson}
+              onDownloadXml={downloadSimulatorXml}
+              exportStatus={{ busy: reportExportBusy }}
+              statusText={exportFeedback.message}
+              statusTone={
+                exportFeedback.type === 'error'
+                  ? 'text-rose-600'
+                  : exportFeedback.type === 'success'
+                    ? 'text-emerald-600'
+                    : 'text-slate-500'
+              }
+              />
             </div>
             <div className="lg:col-span-4">
               <RecommendedNextSteps skills={skills} />
