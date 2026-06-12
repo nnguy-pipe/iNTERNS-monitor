@@ -7,6 +7,13 @@ const severityRank = {
   Low: 4,
 };
 
+export function getHealthDisplayStatus(score) {
+  const numericScore = Number(score) || 0;
+  if (numericScore >= 85) return 'Healthy';
+  if (numericScore >= 50) return 'Degraded';
+  return 'Critical';
+}
+
 const metricRules = [
   {
     key: 'cpu',
@@ -140,14 +147,17 @@ export function calculateHealthScore(subsystems = []) {
     );
   });
 
-  return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+  const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  const worstScore = Math.min(...scores);
+
+  return Math.round(averageScore * 0.35 + worstScore * 0.65);
 }
 
 export function deriveHealthSnapshot(subsystems = []) {
   const alerts = buildAlertsFromSubsystems(subsystems);
   const healthScore = calculateHealthScore(subsystems);
   const hasCriticalAlert = alerts.some((alert) => alert.severity === 'Critical');
-  const status = hasCriticalAlert || healthScore < 50 ? 'Critical' : alerts.length > 0 || healthScore < 80 ? 'Degraded' : 'Healthy';
+  const status = hasCriticalAlert ? 'Critical' : getHealthDisplayStatus(healthScore);
 
   return {
     alerts,

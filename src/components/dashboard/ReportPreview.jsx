@@ -1,9 +1,10 @@
 function ReportPreview({
   report,
+  onDownloadReport = () => {},
   onDownloadPdf = () => {},
   onDownloadJson = () => {},
   onDownloadXml = () => {},
-  exportStatus = { busy: { pdf: false, json: false, xml: false } },
+  exportStatus = { busy: { report: false, pdf: false, json: false, xml: false } },
   statusText = '',
   statusTone = 'text-slate-500',
 }) {
@@ -42,6 +43,13 @@ function ReportPreview({
           Download a timestamped PDF of this report, plus current simulator XML and JSON exports.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-slate-900 ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={onDownloadReport}
+            disabled={Boolean(exportStatus?.busy?.report)}
+          >
+            {exportStatus?.busy?.report ? 'Downloading report...' : 'Download report'}
+          </button>
           <button
             className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             onClick={onDownloadPdf}

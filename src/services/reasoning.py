@@ -19,6 +19,40 @@ class ReasoningEngine:
     """
 
     @staticmethod
+    def _subsystem_metric_penalty(event: Dict[str, Any]) -> tuple[float, str]:
+        """
+        Compute penalty for subsystem metrics (CPU, RAM, active users).
+        Returns (penalty, detail_string).
+        """
+        metric_name = event.get("metric_name", "").lower()
+        value = float(event.get("value", 0))
+        
+        if "cpu" in metric_name:
+            if value > 90:
+                return (0.7, f"cpu={value:.1f}%")
+            elif value > 75:
+                return (0.5, f"cpu={value:.1f}%")
+            elif value > 60:
+                return (0.3, f"cpu={value:.1f}%")
+        
+        elif "ram" in metric_name or "memory" in metric_name:
+            # Assuming value is in MB
+            if value > 8000:
+                return (0.6, f"ram={value:.0f}MB")
+            elif value > 6000:
+                return (0.4, f"ram={value:.0f}MB")
+            elif value > 4000:
+                return (0.2, f"ram={value:.0f}MB")
+        
+        elif "user" in metric_name or "connection" in metric_name:
+            if value > 1000:
+                return (0.5, f"users={value:.0f}")
+            elif value > 500:
+                return (0.3, f"users={value:.0f}")
+        
+        return (0.0, "")
+
+    @staticmethod
     def _parse_timestamp(value: Any) -> datetime:
         """Best-effort timestamp parsing for normalized payloads and tests."""
         if isinstance(value, datetime):
@@ -53,7 +87,8 @@ class ReasoningEngine:
             _debug_logger.warning(f"[REASONING] No events provided, returning default score 0.5")
             return 0.5  # Unknown state
         
-        score = 1.0
+        weighted_health_sum = 0.0
+        total_weight = 0.0
         now = datetime.utcnow()
         penalties_applied = []
         
@@ -66,43 +101,55 @@ class ReasoningEngine:
             # Check event type and apply penalties
             event_type = event.get("type")
             
+            event_penalty = 0.0
+
             if event_type == "log":
                 level = event.get("level", "").lower()
                 if level == "error":
-                    penalty = 0.3 * recency_weight
-                    score -= penalty
-                    penalties_applied.append(f"error_log({penalty:.3f})")
+                    event_penalty += 0.65
+                    penalties_applied.append(f"error_log({0.65 * recency_weight:.3f})")
                 elif level == "warning":
-                    penalty = 0.15 * recency_weight
-                    score -= penalty
-                    penalties_applied.append(f"warning_log({penalty:.3f})")
+                    event_penalty += 0.35
+                    penalties_applied.append(f"warning_log({0.35 * recency_weight:.3f})")
             
             elif event_type == "metric":
-                value = float(event.get("value", 0))
-                # Simple thresholds for MVP
-                if value > 1000:  # Abnormally high
-                    penalty = 0.2 * recency_weight
-                    score -= penalty
-                    penalties_applied.append(f"high_metric({value:.1f},{penalty:.3f})")
-                elif value < 0:  # Invalid
-                    penalty = 0.1 * recency_weight
-                    score -= penalty
-                    penalties_applied.append(f"invalid_metric({penalty:.3f})")
+                subsystem_penalty, detail = ReasoningEngine._subsystem_metric_penalty(event)
+                if subsystem_penalty > 0:
+                    event_penalty += subsystem_penalty
+                    penalties_applied.append(
+                        f"subsystem_metric({detail},{subsystem_penalty * recency_weight:.3f})"
+                    )
+                else:
+                    value = float(event.get("value", 0))
+                    # Simple thresholds for MVP
+                    if value > 1000:  # Abnormally high
+                        event_penalty += 0.45
+                        penalties_applied.append(f"high_metric({value:.1f},{0.45 * recency_weight:.3f})")
+                    elif value < 0:  # Invalid
+                        event_penalty += 0.3
+                        penalties_applied.append(f"invalid_metric({0.3 * recency_weight:.3f})")
             
             elif event_type == "trace":
                 duration = float(event.get("duration_ms", 0))
                 status = event.get("status", "").lower()
                 if status == "error":
-                    penalty = 0.25 * recency_weight
-                    score -= penalty
-                    penalties_applied.append(f"error_trace({penalty:.3f})")
+                    event_penalty += 0.6
+                    penalties_applied.append(f"error_trace({0.6 * recency_weight:.3f})")
                 elif duration > 5000:  # >5s duration
-                    penalty = 0.1 * recency_weight
-                    score -= penalty
-                    penalties_applied.append(f"slow_trace({duration}ms,{penalty:.3f})")
+                    event_penalty += 0.25
+                    penalties_applied.append(f"slow_trace({duration}ms,{0.25 * recency_weight:.3f})")
+
+            event_penalty = min(1.0, event_penalty)
+            event_health = 1.0 - event_penalty
+            weighted_health_sum += event_health * recency_weight
+            total_weight += recency_weight
         
+        if total_weight <= 0:
+            _debug_logger.warning("[REASONING] No weighted events after scoring, returning default score 0.5")
+            return 0.5
+
         # Clamp to 0.0-1.0
-        final_score = max(0.0, min(1.0, score))
+        final_score = max(0.0, min(1.0, weighted_health_sum / total_weight))
         _debug_logger.debug(f"[REASONING] Health score computed: {final_score:.3f} (penalties: {', '.join(penalties_applied)})")
         return final_score
 
@@ -135,6 +182,18 @@ class ReasoningEngine:
             return issue
         
         # Check for abnormal metrics
+        subsystem_metrics = [e for e in events if e.get("type") == "metric" and isinstance(e.get("subsystems"), dict)]
+        if subsystem_metrics:
+            worst_event = max(
+                subsystem_metrics,
+                key=lambda e: ReasoningEngine._subsystem_metric_penalty(e)[0],
+            )
+            penalty, detail = ReasoningEngine._subsystem_metric_penalty(worst_event)
+            if penalty > 0:
+                issue = f"Subsystem pressure detected ({detail})"
+                _debug_logger.debug(f"[REASONING] Primary issue identified: {issue}")
+                return issue
+
         abnormal_metrics = [e for e in events if e.get("type") == "metric" and float(e.get("value", 0)) > 1000]
         if abnormal_metrics:
             metric_name = abnormal_metrics[0].get("name")

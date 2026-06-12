@@ -3,10 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../src/App.jsx';
 
-vi.mock('../src/utils/api.js', () => ({
-  API_BASE: 'http://localhost:8000',
-  fetchAgentChecks: vi.fn().mockResolvedValue({ agents: [] }),
-}));
+vi.mock('../src/utils/api.js', async () => {
+  const actual = await vi.importActual('../src/utils/api.js');
+  return {
+    ...actual,
+    fetchAgentChecks: vi.fn().mockResolvedValue({ agents: [] }),
+  };
+});
 
 const telemetrySnapshot = {
   subsystems: {
@@ -14,6 +17,17 @@ const telemetrySnapshot = {
     app: { cpu: 22, ram: 256 },
     db: { cpu: 74, ram: 2048 },
   },
+};
+
+const persistedReport = {
+  id: 'report-1',
+  system_name: 'iMonitor',
+  environment: 'production',
+  status: 'warning',
+  health_score: 0.73,
+  primary_issue: 'Database latency is elevated',
+  suggestions: ['Review query load', 'Check for storage contention'],
+  created_at: '2026-06-12T11:30:00.000Z',
 };
 
 function mockDashboardFetch() {
@@ -29,6 +43,20 @@ function mockDashboardFetch() {
       return Promise.resolve({
         ok: true,
         json: async () => telemetrySnapshot,
+      });
+    }
+
+    if (url.includes('/api/simulator/ingest')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ status: 'ingested' }),
+      });
+    }
+
+    if (url.includes('/api/reports/latest')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => persistedReport,
       });
     }
 
@@ -117,6 +145,12 @@ describe('report exports in the dashboard', () => {
       if (url.includes('/api/simulator/metrics')) {
         return Promise.resolve({ ok: true, json: async () => telemetrySnapshot });
       }
+      if (url.includes('/api/simulator/ingest')) {
+        return Promise.resolve({ ok: true, json: async () => ({ status: 'ingested' }) });
+      }
+      if (url.includes('/api/reports/latest')) {
+        return Promise.resolve({ ok: true, json: async () => persistedReport });
+      }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
 
@@ -158,6 +192,12 @@ describe('report exports in the dashboard', () => {
       if (url.includes('/api/simulator/export/json')) {
         return Promise.resolve({ ok: true, json: async () => ({}) });
       }
+      if (url.includes('/api/simulator/ingest')) {
+        return Promise.resolve({ ok: true, json: async () => ({ status: 'ingested' }) });
+      }
+      if (url.includes('/api/reports/latest')) {
+        return Promise.resolve({ ok: true, json: async () => persistedReport });
+      }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
 
@@ -191,5 +231,15 @@ describe('report exports in the dashboard', () => {
     expect(pdfBlob.type).toBe('application/pdf');
     expect(pdfBlob.size).toBeGreaterThan(0);
     expect(screen.queryByText(/PDF download started/i)).not.toBeNull();
+  });
+
+  it('renders the persisted database report when it is available', async () => {
+    render(<App />);
+
+    const summaryMatches = await screen.findAllByText(/database latency is elevated/i);
+    expect(summaryMatches.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('100').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Review query load/i)).toBeTruthy();
+    expect(screen.getByText(/Source: Live telemetry/i)).toBeTruthy();
   });
 });

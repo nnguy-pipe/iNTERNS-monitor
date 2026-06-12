@@ -255,6 +255,24 @@ def generate_user_report(
     markdown_lines.append("")
     markdown_lines.append("## Anomalies")
     markdown_lines.append(f"- Detected anomalies: {len(anomalies)}")
+    
+    # Include CI trace if available
+    if report.environment == 'ci':
+        import os
+        import json
+        system_name = report.system_name
+        trace_file = f"trace_{system_name}_{report.environment}.json"
+        if os.path.exists(trace_file):
+            try:
+                with open(trace_file, 'r') as f:
+                    trace_data = json.load(f)
+                markdown_lines.append("")
+                markdown_lines.append("## CI Execution Trace")
+                markdown_lines.append("```json")
+                markdown_lines.append(json.dumps(trace_data, indent=2))
+                markdown_lines.append("```")
+            except Exception:
+                pass  # Silently skip if trace can't be read
 
     return {
         **base_report,
@@ -461,6 +479,24 @@ def generate_user_report_on_demand(
     markdown_lines.append("")
     markdown_lines.append("## Anomalies")
     markdown_lines.append(f"- Detected anomalies: {len(anomalies)}")
+    
+    # Include CI trace if available
+    if generated.get('environment') == 'ci':
+        import os
+        import json
+        system_name = generated.get('system_name', '')
+        trace_file = f"trace_{system_name}_{generated.get('environment')}.json"
+        if os.path.exists(trace_file):
+            try:
+                with open(trace_file, 'r') as f:
+                    trace_data = json.load(f)
+                markdown_lines.append("")
+                markdown_lines.append("## CI Execution Trace")
+                markdown_lines.append("```json")
+                markdown_lines.append(json.dumps(trace_data, indent=2))
+                markdown_lines.append("```")
+            except Exception:
+                pass  # Silently skip if trace can't be read
 
     return {
         **generated,

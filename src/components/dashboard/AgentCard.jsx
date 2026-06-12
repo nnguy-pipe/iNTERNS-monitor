@@ -82,6 +82,7 @@ function AgentCard({
   active_users,
   external_load,
   event_spike,
+  type,
 }) {
   const displayName = formatAgentName(name);
 
@@ -92,49 +93,47 @@ function AgentCard({
     event_spike,
   });
 
+  const isSubsystem = type === 'subsystem';
+
   return (
     <article className="h-full rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="flex-1">
           <h3 className="text-lg font-semibold text-slate-900">
             {displayName}
           </h3>
-
           {scope && <p className="mt-1 text-xs text-slate-500">{scope}</p>}
-
-          <p className="mt-2 text-xs text-slate-600">
-            Health: <span className="font-semibold text-slate-900">{healthStatus}</span>
-          </p>
-
-          <div className="mt-3 space-y-1">
-            {latestFinding && (
-              <p className="text-xs text-slate-500">
-                Finding: {latestFinding}
-              </p>
-            )}
-            {lastChecked && String(lastChecked).toLowerCase() !== 'null' && (
-              <p className="text-xs text-slate-500">
-                Checked: {lastChecked}
-              </p>
-            )}
-            <p className="text-xs text-slate-500">
-              CPU: {formatNumber(cpu)}%
-            </p>
-            <p className="text-xs text-slate-500">
-              RAM: {formatNumber(ram)} mb
-            </p>
-            <p className="text-xs text-slate-500">
-              Active Users: {active_users ?? 'N/A'}
-            </p>
-            <p className="text-xs text-slate-500">
-              External Load: {formatNumber(external_load, 3)}
-            </p>
-            <p className="text-xs text-slate-500">
-              Event Spike: {event_spike ?? 'N/A'}
-            </p>
-          </div>
+          {isSubsystem && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">CPU</p>
+                <p className="text-sm font-medium text-slate-700">{formatNumber(cpu)}%</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">RAM</p>
+                <p className="text-sm font-medium text-slate-700">{formatNumber(ram)} mb</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Active Users</p>
+                <p className="text-sm font-medium text-slate-700">{active_users ?? 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Ext Load</p>
+                <p className="text-sm font-medium text-slate-700">{formatNumber(external_load, 3)}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Event Spike</p>
+                <p className="text-sm font-medium text-slate-700">{event_spike ?? 'N/A'}</p>
+              </div>
+            </div>
+          )}
+          {latestFinding ? (
+            <p className="mt-3 text-xs text-slate-600 leading-relaxed">{latestFinding}</p>
+          ) : null}
+          {lastChecked ? (
+            <p className="mt-2 text-[11px] text-slate-500">Last checked: {lastChecked}</p>
+          ) : null}
         </div>
-
         <StatusBadge status={healthStatus} />
       </div>
     </article>

@@ -41,6 +41,7 @@ export function formatReadableTimestamp(date = new Date()) {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    second: '2-digit',
   }).format(date);
 }
 
@@ -84,21 +85,22 @@ function drawCard({ x, y, width, height, title, lines, accent = '0.05 0.55 0.85'
     .join('\n');
 }
 
-export function buildReportPdfBlob({ environment, generatedAt = new Date(), report, telemetrySnapshot = [] }) {
+export function buildReportPdfBlob({ environment, generatedAt = new Date(), report, telemetrySnapshot = [] , healthStatus = 'Unknown'}) {
   const readableTimestamp = formatReadableTimestamp(generatedAt);
   const healthLines = [
     `Health score: ${report.healthScore}/100`,
-    `Result: ${report.result}`,
+    `Status: ${healthStatus}`,
   ];
-  const summaryLines = wrapText(report.summary, 58);
+  const fullReport = `Result: ${report.result}` + report.summary
+  const summaryLines = wrapText(fullReport, 110);
   const telemetryLines = telemetrySnapshot.length
     ? telemetrySnapshot.flatMap((row) => [`${row.name.toUpperCase()}: CPU ${Math.round(row.cpu)}%, RAM ${Math.round(row.ram)} MB`])
     : ['No telemetry snapshot was available at export time.'];
   const concernLines = report.areasOfConcern.length
-    ? report.areasOfConcern.flatMap((item) => wrapText(`• ${item}`, 50))
+    ? report.areasOfConcern.flatMap((item) => wrapText(`- ${item}`, 50))
     : ['• None'];
   const improvementLines = report.suggestedImprovements.length
-    ? report.suggestedImprovements.flatMap((item) => wrapText(`• ${item}`, 50))
+    ? report.suggestedImprovements.flatMap((item) => wrapText(`- ${item}`, 50))
     : ['• None'];
 
   const content = [
@@ -119,7 +121,7 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
       width: 168,
       height: 70,
       title: 'Export metadata',
-      lines: [`Environment: ${environment}`, `PDF generated: ${readableTimestamp}`],
+      lines: [`Environment: ${environment}`],
       accent: '0.16 0.63 0.36',
       fill: '0.96 0.99 0.97',
     }),
@@ -129,7 +131,7 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
       width: 168,
       height: 70,
       title: 'Report status',
-      lines: [`Snapshot captured from the latest successful dashboard telemetry state.`],
+      lines: wrapText(`Snapshot captured from the latest successful database read.`, 30),
       accent: '0.45 0.35 0.9',
       fill: '0.97 0.96 1',
     }),
@@ -148,16 +150,16 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
       y: 348,
       width: 540,
       height: 132,
-      title: 'Telemetry snapshot',
+      title: `Telemetry snapshot (${readableTimestamp})`,
       lines: telemetryLines,
       fill: '0.96 0.98 1',
       accent: '0.14 0.45 0.9',
     }),
     drawCard({
       x: 36,
-      y: 176,
+      y: 150,
       width: 260,
-      height: 140,
+      height: 180,
       title: 'Areas of concern',
       lines: concernLines,
       fill: '1 0.99 0.96',
@@ -165,9 +167,9 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
     }),
     drawCard({
       x: 316,
-      y: 176,
+      y: 150,
       width: 260,
-      height: 140,
+      height: 180,
       title: 'Suggested improvements',
       lines: improvementLines,
       fill: '0.97 0.99 0.96',

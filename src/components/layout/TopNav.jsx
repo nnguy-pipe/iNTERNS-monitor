@@ -13,7 +13,6 @@ function TopNav({ environment, environments, onEnvironmentChange, lastUpdated, o
           <nav className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
             <a href="#dashboard" className="hover:text-slate-900">Dashboard</a>
             <a href="#reports" className="hover:text-slate-900">Reports</a>
-            <a href="#skills" className="hover:text-slate-900">Skills Registry</a>
           </nav>
 
           <div className="flex items-center gap-3 rounded-full bg-slate-100 p-2 shadow-inner">

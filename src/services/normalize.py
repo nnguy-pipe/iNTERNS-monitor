@@ -48,12 +48,25 @@ class NormalizationPipeline:
     @staticmethod
     def _normalize_metric(data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize metric event to standard format."""
+        subsystems = data.get("subsystems") if isinstance(data.get("subsystems"), dict) else None
+
+        aggregate_value = data.get("value", 0)
+        if subsystems:
+            cpu_values = []
+            for stats in subsystems.values():
+                if isinstance(stats, dict):
+                    cpu_values.append(float(stats.get("cpu", 0)))
+            if cpu_values:
+                aggregate_value = max(cpu_values)
+
         return {
             "type": "metric",
-            "name": data.get("metric_name", "unknown"),
-            "value": float(data.get("value", 0)),
+            "name": data.get("metric_name", "simulator_subsystems" if subsystems else "unknown"),
+            "value": float(aggregate_value),
             "timestamp": data.get("timestamp", datetime.utcnow().isoformat()),
             "labels": data.get("labels", {}),
+            "preset": data.get("preset"),
+            "subsystems": subsystems,
         }
 
     @staticmethod
