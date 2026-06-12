@@ -10,7 +10,13 @@ import ReportPreview from './components/dashboard/ReportPreview.jsx';
 import RecommendedNextSteps from './components/dashboard/RecommendedNextSteps.jsx';
 import mockSkills from './data/mockSkills.js';
 import { deriveHealthSnapshot } from './utils/health.js';
-import { API_BASE, fetchAgentChecks, fetchSimulatorMetrics, fetchUserReport } from './utils/api.js';
+import {
+  API_BASE,
+  fetchAgentChecks,
+  fetchSimulatorMetrics,
+  fetchUserReport,
+  ingestSimulatorSnapshot,
+} from './utils/api.js';
 import {
   buildReportPdfBlob,
   buildTelemetrySnapshot,
@@ -26,15 +32,14 @@ const AGENT_META = {
   infrastructure: { name: 'Infrastructure Agent', scope: 'Cloud infrastructure and network health' },
   memory: { name: 'Memory Agent', scope: 'Heap and container memory pressure' },
   cpu: { name: 'CPU Agent', scope: 'CPU load and core utilization' },
+  users: { name: 'User Agent', scope: 'Active-user load and concurrency health' },
   ci: { name: 'CI/CD Agent', scope: 'Pipeline and merge health' },
   api: { name: 'API Agent', scope: 'Public endpoint latency and availability' },
 };
 
 const STATUS_LABEL = { healthy: 'Healthy', warning: 'Warning', critical: 'Critical', unknown: 'Unknown' };
-const STATUS_CONFIDENCE = { healthy: 97, warning: 72, critical: 38, unknown: 50 };
 const DASHBOARD_SYSTEM_NAME = import.meta.env.VITE_SYSTEM_NAME || 'infra-demo';
 const ENV_TO_BACKEND = { CI: 'ci', PROD: 'production' };
-const BACKEND_STATUS_TO_UI = { healthy: 'Healthy', warning: 'Degraded', critical: 'Critical', unknown: 'Healthy' };
 const STATUS_RANK = { Healthy: 0, Degraded: 1, Critical: 2 };
 
 function formatLastChecked(isoTimestamp) {
@@ -57,9 +62,49 @@ function mapBackendAgents(backendAgents) {
       status: STATUS_LABEL[a.status] || 'Unknown',
       latestFinding: a.latest_finding || 'No data',
       lastChecked: formatLastChecked(a.last_checked),
-      confidenceScore: STATUS_CONFIDENCE[a.status] ?? 50,
+      type: 'agent',
     };
   });
+}
+
+function normalizeHealthScore(value) {
+  const score = Number(value);
+  if (Number.isNaN(score)) return 50;
+  return Math.max(0, Math.min(100, score <= 1 ? score * 100 : score));
+}
+
+function deriveSubsystemStatus(metrics) {
+  const cpu = Number(metrics?.cpu || 0);
+  const ram = Number(metrics?.ram || 0);
+  const users = Number(metrics?.active_users || 0);
+  const eventSpike = Number(metrics?.event_spike || 0);
+  if (cpu >= 85 || ram >= 3500 || users >= 80 || eventSpike >= 4) return 'Critical';
+  if (cpu >= 60 || ram >= 2200 || users >= 40 || eventSpike > 0) return 'Warning';
+  return 'Healthy';
+}
+
+function mapSimulatorAgents(metrics) {
+  const subsystems = metrics?.subsystems || {};
+  const checkedAt = Number(metrics?.timestamp)
+    ? formatLastChecked(new Date(Number(metrics.timestamp) * 1000).toISOString())
+    : 'just now';
+  const preset = metrics?.preset || 'default';
+
+  return Object.entries(subsystems).map(([name, values]) => ({
+    name,
+    scope: `${name.toUpperCase()} subsystem daemon telemetry`,
+    status: deriveSubsystemStatus(values),
+    latestFinding: `Daemon: preset ${preset}, cpu ${Number(values?.cpu || 0).toFixed(1)}%, ram ${Math.round(
+      Number(values?.ram || 0),
+    )} MB, active users ${Number(values?.active_users || 0)}`,
+    lastChecked: checkedAt,
+    cpu: values?.cpu,
+    ram: values?.ram,
+    active_users: values?.active_users,
+    external_load: values?.external_load,
+    event_spike: values?.event_spike,
+    type: 'subsystem',
+  }));
 }
 
 function mapBackendReport(backendReport, environment) {
@@ -130,7 +175,7 @@ function mapBackendReport(backendReport, environment) {
   }
 
   return {
-    healthScore: Math.round(score * 100),
+    healthScore: Math.round(normalizeHealthScore(score)),
     result,
     summary,
     areasOfConcern: areasOfConcern.length ? areasOfConcern : ['No high-priority concerns detected.'],
@@ -188,6 +233,54 @@ function mapReportToAlerts(report, environment) {
   return alerts;
 }
 
+function deriveBackendReportFallback(agentChecks, metrics, environment) {
+  const checks = Array.isArray(agentChecks) ? agentChecks : [];
+  const scoreByStatus = { healthy: 95, warning: 72, critical: 35, unknown: 55 };
+
+  const backendScoreFromAgents = checks.length
+    ? Math.round(
+      checks.reduce((sum, item) => {
+        const statusKey = String(item?.status || 'unknown').toLowerCase();
+        return sum + (scoreByStatus[statusKey] ?? 55);
+      }, 0) / checks.length,
+    )
+    : null;
+
+  const backendScoreFromMetrics = metrics?.subsystems
+    ? Math.round(
+      Object.values(metrics.subsystems).reduce((sum, row) => sum + Number(row?.cpu || 0), 0) /
+        Math.max(1, Object.keys(metrics.subsystems).length),
+    )
+    : 60;
+
+  const healthScore = backendScoreFromAgents ?? backendScoreFromMetrics;
+
+  const criticalFinding = checks.find((item) => String(item?.status || '').toLowerCase() === 'critical');
+  const warningFinding = checks.find((item) => String(item?.status || '').toLowerCase() === 'warning');
+  const topFinding = criticalFinding || warningFinding;
+
+  const summary = topFinding?.latest_finding
+    ? String(topFinding.latest_finding)
+    : environment === 'CI'
+      ? 'Backend telemetry is active and CI health checks are being evaluated.'
+      : 'Backend telemetry is active and production health checks are being evaluated.';
+
+  return {
+    healthScore,
+    result: environment === 'CI' ? 'CI BACKEND STATUS' : 'PROD BACKEND STATUS',
+    summary,
+    areasOfConcern: topFinding?.latest_finding ? [String(topFinding.latest_finding)] : ['No high-priority concerns detected.'],
+    suggestedImprovements: ['Review live backend agent findings and continue monitoring telemetry trends.'],
+    attachedReport: '',
+    backendStatus: criticalFinding ? 'critical' : warningFinding ? 'warning' : 'healthy',
+    reasoningItems: topFinding?.latest_finding ? [String(topFinding.latest_finding)] : [],
+    correlatedEvents: [],
+    anomalyItems: [],
+    source: 'backend',
+    createdAt: new Date().toISOString(),
+  };
+}
+
 function deriveTelemetryStatus(metrics) {
   const subsystems = metrics?.subsystems || {};
   const rows = Object.values(subsystems);
@@ -210,28 +303,34 @@ function maxStatus(a, b) {
 }
 
 function App() {
-  const pollingInterval = 2500;
+  const pollingInterval = 5000;
   const [environment, setEnvironment] = useState('PROD');
   const [updatedAt, setUpdatedAt] = useState(new Date());
-  const [liveAgents, setLiveAgents] = useState(null); // null = not yet loaded
-   //from API
-  const [apiHealth, setApiHealth] = useState(null);
+  const [agentChecks, setAgentChecks] = useState([]);
   const [apiMetrics, setApiMetrics] = useState(null);
-  const [health, setHealth] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
-  const [backendReports, setBackendReports] = useState({ CI: null, PROD: null });
-  const [loading, setLoading] = useState(true);
   const [liveReport, setLiveReport] = useState(null);
   const [liveTelemetryStatus, setLiveTelemetryStatus] = useState(null);
   const [liveAlerts, setLiveAlerts] = useState([]);
+  const [selectedAlert, setSelectedAlert] = useState(null);
   const [reportExportBusy, setReportExportBusy] = useState({
+    report: false,
     pdf: false,
     json: false,
     xml: false,
   });
   const [exportFeedback, setExportFeedback] = useState({ type: 'idle', message: '' });
   const healthSnapshot = useMemo(() => deriveHealthSnapshot(subsystems), [subsystems]);
-  const [healthStatus, setHealthStatus] = useState(healthSnapshot.status || 'Unknown');
+  const healthStatus = healthSnapshot.status || 'Unknown';
+  const skills = mockSkills[environment] || [];
+  const report = useMemo(
+    () => liveReport || deriveBackendReportFallback(agentChecks, apiMetrics, environment),
+    [liveReport, agentChecks, apiMetrics, environment],
+  );
+  const activeAlerts = useMemo(
+    () => (liveAlerts.length ? liveAlerts : mapReportToAlerts(report, environment)),
+    [liveAlerts, report, environment],
+  );
 
   function triggerDownload(blob, filename) {
     const link = document.createElement('a');
@@ -258,17 +357,20 @@ function App() {
     }
   }
 
+  const healthScore = report?.healthScore ?? 60;
+  const summary = report?.summary ?? 'Live backend report unavailable. Ingest events to generate assessment.';
+
   const reportSnapshot = useMemo(
     () => ({
       environment,
-      healthScore: displayReport.healthScore,
-      result: displayReport.result,
-      summary: displayReport.summary,
-      areasOfConcern: displayReport.areasOfConcern,
-      suggestedImprovements: displayReport.suggestedImprovements,
+      healthScore,
+      result: report?.result || `${environment} PENDING`,
+      summary,
+      areasOfConcern: report?.areasOfConcern || [],
+      suggestedImprovements: report?.suggestedImprovements || [],
       telemetrySnapshot: buildTelemetrySnapshot(subsystems),
     }),
-    [displayReport, environment, subsystems]
+    [environment, healthScore, report, subsystems, summary],
   );
 
   async function downloadPdfReport() {
@@ -282,12 +384,34 @@ function App() {
         generatedAt: exportMoment,
         report: reportSnapshot,
         telemetrySnapshot: reportSnapshot.telemetrySnapshot,
-        healthStatus: displayStatus,
       });
       triggerDownload(blob, `report-${environment.toLowerCase()}-${timestamp}.pdf`);
       setExportMessage('success', `PDF download started (${formatReadableTimestamp(exportMoment)}).`);
     } finally {
       setExportBusy('pdf', false);
+    }
+  }
+
+  async function downloadMarkdownReport() {
+    if (reportExportBusy.report) return;
+    setExportBusy('report', true);
+    try {
+      const backendEnvironment = ENV_TO_BACKEND[environment] || 'production';
+      const latest = await fetchUserReport(DASHBOARD_SYSTEM_NAME, backendEnvironment);
+      const markdown = latest?.report_markdown || report?.attachedReport || '';
+      if (!markdown) {
+        throw new Error('No report content available');
+      }
+
+      const dateTag = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const fileName = `${DASHBOARD_SYSTEM_NAME}-${backendEnvironment}-report-${dateTag}.md`;
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      triggerDownload(blob, fileName);
+      setExportMessage('success', `Report download started (${formatReadableTimestamp(new Date())}).`);
+    } catch (error) {
+      setExportMessage('error', `Report download failed: ${error.message}`);
+    } finally {
+      setExportBusy('report', false);
     }
   }
 
@@ -334,53 +458,7 @@ function App() {
     }
   }
 
-  // fetch/ load data function
-  async function loadData() {
-      setLoading(true);
-
-      try {
-        const [healthRes, metricsRes] = await Promise.all([
-          fetch('http://localhost:8000/api/simulator/health').then((r) => r.json()),
-          fetch('http://localhost:8000/api/simulator/metrics').then((r) => r.json()),
-        ]);
-
-        setHealth(healthRes);
-
-        // Convert subsystems object -> array
-        const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
-          ([name, stats]) => ({ name, ...stats }),
-        );
-        setSubsystems(subsystemAgents);
-
-        try {
-          await ingestSimulatorMetrics(SCORE_SYSTEM_NAME, environment);
-        } catch {
-          // Keep going even if simulator ingestion is unavailable; an existing report may still be readable.
-        }
-
-        try {
-          const latestReport = await fetchLatestReport(SCORE_SYSTEM_NAME, environment);
-          setBackendReports((prev) => ({ ...prev, [environment]: latestReport }));
-        } catch {
-          // Keep the existing report if the database-backed lookup is unavailable.
-        }
-      } finally {
-        setLoading(false);
-      }
-  }
-  useEffect(() => {
-    loadData();
-  }, [environment]);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      loadData();
-      setUpdatedAt(new Date());
-    }, pollingInterval);
-
-    return () => clearInterval(timer);
-  }, [environment]);
-
-  // Poll backend agent checks; fall back silently to mock data when unavailable
+  // Poll backend agent checks from DB for health findings.
   useEffect(() => {
     let active = true;
 
@@ -388,10 +466,9 @@ function App() {
       try {
         const data = await fetchAgentChecks();
         if (!active || !data.agents) return;
-        setLiveAgents(mapBackendAgents(data.agents));
+        setAgentChecks(data.agents);
       } catch {
-        // backend unavailable — keep using mock data
-        if (active) setLiveAgents(null);
+        if (active) setAgentChecks([]);
       }
     }
 
@@ -401,7 +478,7 @@ function App() {
     return () => { active = false; clearInterval(id); };
   }, []);
 
-  // Poll simulator metrics for live status updates when presets/telemetry shift.
+  // Poll simulator daemon for live card metrics and top-line telemetry status.
   useEffect(() => {
     let active = true;
 
@@ -409,14 +486,22 @@ function App() {
       try {
         const metrics = await fetchSimulatorMetrics();
         if (!active) return;
+        setApiMetrics(metrics);
+        setSubsystems(
+          Object.entries(metrics?.subsystems || {}).map(([name, stats]) => ({
+            name,
+            ...stats,
+          })),
+        );
         setLiveTelemetryStatus(deriveTelemetryStatus(metrics));
+        setUpdatedAt(new Date());
       } catch {
         if (active) setLiveTelemetryStatus(null);
       }
     }
 
     pollMetrics();
-    const id = setInterval(pollMetrics, 5000);
+    const id = setInterval(pollMetrics, pollingInterval);
     return () => {
       active = false;
       clearInterval(id);
@@ -428,6 +513,12 @@ function App() {
 
     async function loadReport() {
       const backendEnvironment = ENV_TO_BACKEND[environment] || 'production';
+      try {
+        await ingestSimulatorSnapshot(DASHBOARD_SYSTEM_NAME, backendEnvironment);
+      } catch {
+        // Keep going; existing DB reports may still be available.
+      }
+
       try {
         const report = await fetchUserReport(DASHBOARD_SYSTEM_NAME, backendEnvironment);
         if (!active) return;
@@ -451,70 +542,25 @@ function App() {
     };
   }, [environment]);
 
-  const activeAlerts = liveAlerts;
-  const currentAgents = liveAgents ||  [];
-  const report = liveReport;
-  const skills = mockSkills[environment] || [];
-  const [selectedAlert, setSelectedAlert] = useState(null);
+  const currentAgents = useMemo(() => {
+    const backendAgents = mapBackendAgents(agentChecks);
+    const daemonAgents = apiMetrics?.subsystems ? mapSimulatorAgents(apiMetrics) : [];
+    return [...backendAgents, ...daemonAgents];
+  }, [agentChecks, apiMetrics]);
 
-  useEffect(() => {
-    // Auto-open the critical alert in PROD to guide the demo story
-    if (environment === 'PROD') {
-      const critical = (activeAlerts || []).find((a) => a.severity === 'Critical');
-      if (critical) setSelectedAlert(critical);
-    } else {
-      setSelectedAlert(null);
-    }
-  }, [environment, activeAlerts]);
-
-  // // Derive health status from agents/alerts for demo storytelling
-  // const hasCriticalAlert = activeAlerts.some((a) => a.severity === 'Critical');
-  // const hasHighAlert = activeAlerts.some((a) => a.severity === 'High');
-  // const hasCriticalAgent = currentAgents.some((ag) => ag.status === 'Critical');
-
-  // if (report?.backendStatus) {
-  //   healthStatus = BACKEND_STATUS_TO_UI[report.backendStatus] || 'Healthy';
-  // } else if (hasCriticalAlert || hasCriticalAgent) {
-  //   healthStatus = 'Critical';
-  // } else if (hasHighAlert || currentAgents.some((ag) => ag.status === 'Degraded' || ag.status === 'Warning')) {
-  //   healthStatus = 'Degraded';
-  // }
+  // useEffect(() => {
+  //   // Auto-open the critical alert in PROD to guide the demo story
+  //   if (environment === 'PROD') {
+  //     const critical = (activeAlerts || []).find((a) => a.severity === 'Critical');
+  //     if (critical) setSelectedAlert(critical);
+  //   } else {
+  //     setSelectedAlert(null);
+  //   }
+  // }, [environment, activeAlerts]);
 
   const overallHealthStatus = liveTelemetryStatus
     ? maxStatus(healthStatus, liveTelemetryStatus)
     : healthStatus;
-
-  const healthScore = report?.healthScore ?? Math.round(((apiMetrics?.subsystems
-    ? Object.values(apiMetrics.subsystems).reduce((sum, row) => sum + Number(row?.cpu || 0), 0) /
-      Math.max(1, Object.keys(apiMetrics.subsystems).length)
-    : 60)));
-  const summary = report?.summary ?? 'Live backend report unavailable. Ingest events to generate assessment.';
-
-  async function handleOpenReport() {
-    try {
-      const backendEnvironment = ENV_TO_BACKEND[environment] || 'production';
-      const latest = await fetchUserReport(DASHBOARD_SYSTEM_NAME, backendEnvironment);
-      const markdown = latest?.report_markdown || report?.attachedReport || '';
-
-      if (!markdown) {
-        return;
-      }
-
-      const dateTag = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      const fileName = `${DASHBOARD_SYSTEM_NAME}-${backendEnvironment}-report-${dateTag}.md`;
-      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = href;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(href);
-    } catch {
-      // Keep UI resilient if backend is temporarily unavailable.
-    }
-  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -528,13 +574,12 @@ function App() {
       <PageShell>
         <div className="space-y-10">
           <HealthSummary
-            status={displayStatus}
             score={healthScore}
             activeAlerts={activeAlerts.length}
             environment={environment}
             summary={summary}
             scoreSource={report?.source || 'fallback'}
-            onOpenReport={handleOpenReport}
+            onOpenReport={openReport}
           />
 
           <section id="agents" className="space-y-6">
@@ -563,6 +608,7 @@ function App() {
                 anomalyItems: [],
                 attachedReport: '',
               }}
+              onDownloadReport={downloadMarkdownReport}
               onDownloadPdf={downloadPdfReport}
               onDownloadJson={downloadSimulatorJson}
               onDownloadXml={downloadSimulatorXml}

@@ -1,35 +1,52 @@
+import { useState } from 'react';
 import AgentCard from './AgentCard.jsx';
-import { useEffect, useState } from 'react';
-function AgentGrid({ agents, environment }) {
-  const [agentList, setAgentList] = useState(agents);
 
-  useEffect(() => {
-    setAgentList(agents);
-  }, [agents]);
+function AgentGrid({ agents }) {
+  const agentList = Array.isArray(agents) ? agents : [];
+  const [activeTab, setActiveTab] = useState('agents');
 
-  useEffect(() => {
-    fetch('http://localhost:8000/api/simulator/health')
-      .then(response => response.json())
-      .then(data => {
-        setAgentList(prev =>
-          prev.map(agent =>
-            agent.name === 'Infrastructure Agent'
-              ? { ...agent, status: data.status }
-              : agent
-          )
-        );
-      })
-      .catch(err => console.error('Fetch error:', err));
-  }, []);
+  const agentCards = agentList.filter((a) => a.type === 'agent');
+  const subsystemCards = agentList.filter((a) => a.type === 'subsystem');
+
+  const displayList = activeTab === 'agents' ? agentCards : subsystemCards;
 
   return (
-    <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
-      
-      {agentList.map((agent, index) => (
-        <AgentCard key={agent.name || index} {...agent} />
-      ))}
+    <div>
+      <div className="flex gap-4 mb-6 border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab('agents')}
+          className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+            activeTab === 'agents'
+              ? 'text-sky-600'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Agents
+          {activeTab === 'agents' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-sky-600" />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('subsystems')}
+          className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+            activeTab === 'subsystems'
+              ? 'text-sky-600'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Subsystems
+          {activeTab === 'subsystems' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-sky-600" />
+          )}
+        </button>
+      </div>
 
-    </section>
+      <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
+        {displayList.map((agent, index) => (
+          <AgentCard key={agent.name || index} {...agent} />
+        ))}
+      </section>
+    </div>
   );
 }
 

@@ -19,6 +19,40 @@ class ReasoningEngine:
     """
 
     @staticmethod
+    def _subsystem_metric_penalty(event: Dict[str, Any]) -> tuple[float, str]:
+        """
+        Compute penalty for subsystem metrics (CPU, RAM, active users).
+        Returns (penalty, detail_string).
+        """
+        metric_name = event.get("metric_name", "").lower()
+        value = float(event.get("value", 0))
+        
+        if "cpu" in metric_name:
+            if value > 90:
+                return (0.7, f"cpu={value:.1f}%")
+            elif value > 75:
+                return (0.5, f"cpu={value:.1f}%")
+            elif value > 60:
+                return (0.3, f"cpu={value:.1f}%")
+        
+        elif "ram" in metric_name or "memory" in metric_name:
+            # Assuming value is in MB
+            if value > 8000:
+                return (0.6, f"ram={value:.0f}MB")
+            elif value > 6000:
+                return (0.4, f"ram={value:.0f}MB")
+            elif value > 4000:
+                return (0.2, f"ram={value:.0f}MB")
+        
+        elif "user" in metric_name or "connection" in metric_name:
+            if value > 1000:
+                return (0.5, f"users={value:.0f}")
+            elif value > 500:
+                return (0.3, f"users={value:.0f}")
+        
+        return (0.0, "")
+
+    @staticmethod
     def _parse_timestamp(value: Any) -> datetime:
         """Best-effort timestamp parsing for normalized payloads and tests."""
         if isinstance(value, datetime):
