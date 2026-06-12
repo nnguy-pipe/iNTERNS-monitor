@@ -337,8 +337,10 @@ def generate_report(
             "correlations": [],
         }
     
-    # Run reasoning engine
-    health_score = ReasoningEngine.compute_health_score(normalized_events)
+    # Run reasoning engine with breakdown
+    health_score, score_breakdown = ReasoningEngine.compute_health_score_with_breakdown(
+        normalized_events
+    )
     primary_issue = ReasoningEngine.identify_primary_issue(normalized_events)
     reasoning = ReasoningEngine.generate_reasoning_narrative(normalized_events)
     suggestions = ReasoningEngine.generate_suggestions(health_score, primary_issue)
@@ -347,15 +349,15 @@ def generate_report(
     cascades = CorrelationEngine.detect_cascading_failures(normalized_events)
     time_clusters = CorrelationEngine.correlate_by_time_window(normalized_events)
     
-    # Determine status
+    # Determine status (refined thresholds)
     if health_score >= 0.8:
         status = "healthy"
     elif health_score >= 0.5:
-        status = "warning"
+        status = "degraded"
     else:
         status = "critical"
     
-    # Persist report
+    # Persist report with score breakdown
     report = PersistenceService.create_health_report(
         db=db,
         system_name=system_name,
@@ -364,6 +366,7 @@ def generate_report(
         health_score=health_score,
         primary_issue=primary_issue,
         suggestions=[s.get("action") for s in suggestions],
+        score_breakdown=score_breakdown,
     )
     
     # Log audit event
@@ -388,6 +391,7 @@ def generate_report(
         "primary_issue": primary_issue,
         "reasoning": reasoning,
         "suggestions": suggestions,
+        "score_breakdown": score_breakdown,
         "cascading_failures": cascades,
         "event_clusters": len(time_clusters),
         "created_at": report.created_at.isoformat(),

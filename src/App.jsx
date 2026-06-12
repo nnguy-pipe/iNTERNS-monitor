@@ -76,6 +76,7 @@ function App() {
   const [apiHealth, setApiHealth] = useState(null);
   const [apiMetrics, setApiMetrics] = useState(null);
   const [health, setHealth] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [subsystems, setSubsystems] = useState([]);
   const [backendReports, setBackendReports] = useState({ CI: null, PROD: null });
   const [scoreSources, setScoreSources] = useState({ CI: 'fallback', PROD: 'fallback' });
@@ -204,32 +205,39 @@ function App() {
   // fetch/ load data function
   async function loadData() {
       setLoading(true);
+      setLoadError(null);
 
       try {
+        const [healthResponse, metricsResponse] = await Promise.all([
+          fetch('http://localhost:8000/api/simulator/health'),
+          fetch('http://localhost:8000/api/simulator/metrics'),
+        ]);
+
+        if (!healthResponse.ok || !metricsResponse.ok) {
+          throw new Error(`Telemetry fetch failed (health=${healthResponse.status}, metrics=${metricsResponse.status})`);
+        }
+
         const [healthRes, metricsRes] = await Promise.all([
-          fetch('http://localhost:8000/api/simulator/health').then((r) => r.json()),
-          fetch('http://localhost:8000/api/simulator/metrics').then((r) => r.json()),
+          healthResponse.json(),
+          metricsResponse.json(),
         ]);
 
         setHealth(healthRes);
+        setApiHealth(healthRes);
         setApiMetrics(metricsRes);
 
-        // Convert subsystems object -> array
+        // Convert subsystems object -> array.
         const subsystemAgents = Object.entries(metricsRes?.subsystems || {}).map(
           ([name, stats]) => ({ name, ...stats }),
         );
-        setSubsystems(subsystemAgents);
 
-        try {
-          await ingestSimulatorMetrics(SCORE_SYSTEM_NAME, environment);
-          const latestReport = await fetchLatestReport(SCORE_SYSTEM_NAME, environment);
-          setBackendReports((prev) => ({ ...prev, [environment]: latestReport }));
-          setScoreSources((prev) => ({ ...prev, [environment]: 'backend' }));
-        } catch {
-          if (!backendReports[environment]) {
-            setScoreSources((prev) => ({ ...prev, [environment]: 'fallback' }));
-          }
-        }
+        setSubsystems(subsystemAgents);
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : 'Failed to load telemetry');
+        setApiHealth(null);
+        setApiMetrics(null);
+        setHealth(null);
+        setSubsystems([]);
       } finally {
         setLoading(false);
       }
@@ -237,12 +245,26 @@ function App() {
   useEffect(() => {
     loadData();
 
-    const timer = setInterval(() => {
-      loadData();
+  useEffect(() => {
+    let active = true;
+
+    const safeLoadData = async () => {
+      if (!active) return;
+      await loadData();
+      if (!active) return;
       setUpdatedAt(new Date());
+    };
+
+    safeLoadData();
+
+    const timer = setInterval(() => {
+      safeLoadData();
     }, pollingInterval);
 
-    return () => clearInterval(timer);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [environment]);
 
   // Poll backend agent checks; fall back silently to mock data when unavailable

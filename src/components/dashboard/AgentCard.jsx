@@ -1,4 +1,5 @@
 import StatusBadge from '../ui/StatusBadge.jsx';
+import { getSubsystemHealthStatus } from '../../utils/health.js';
 
 function formatAgentName(name) {
   if (!name) return 'Unknown';
@@ -20,7 +21,7 @@ function formatAgentName(name) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-function getHealthStatus({ status, cpu, ram, event_spike }) {
+function getHealthStatus({ status, cpu, ram, external_load, event_spike }) {
   const normalizedStatus = String(status || '').toLowerCase();
 
   // Use backend status only when it is a meaningful value.
@@ -33,30 +34,7 @@ function getHealthStatus({ status, cpu, ram, event_spike }) {
     return status;
   }
 
-  const cpuValue = Number(cpu ?? 0);
-  const ramValue = Number(ram ?? 0);
-  const eventSpikeValue = Number(event_spike ?? 0);
-
-  const hasAnyTelemetry =
-    cpu !== undefined && cpu !== null ||
-    ram !== undefined && ram !== null ||
-    event_spike !== undefined && event_spike !== null;
-
-  // If backend status is unknown/default and there is no telemetry, keep it Unknown.
-  if (!hasAnyTelemetry) {
-    return 'Unknown';
-  }
-
-  // You can tune these thresholds later.
-  if (cpuValue >= 85 || ramValue >= 4000 || eventSpikeValue >= 5) {
-    return 'Critical';
-  }
-
-  if (cpuValue >= 60 || ramValue >= 2000 || eventSpikeValue > 0) {
-    return 'Warning';
-  }
-
-  return 'Healthy';
+  return getSubsystemHealthStatus({ cpu, ram, external_load, event_spike });
 }
 
 function formatNumber(value, decimals = 2) {
@@ -89,6 +67,7 @@ function AgentCard({
     status,
     cpu,
     ram,
+    external_load,
     event_spike,
   });
 

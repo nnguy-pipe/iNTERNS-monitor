@@ -88,6 +88,7 @@ class PersistenceService:
         health_score: float,
         primary_issue: Optional[str] = None,
         suggestions: Optional[List[str]] = None,
+        score_breakdown: Optional[List[Dict[str, Any]]] = None,
     ) -> HealthReport:
         """Create and persist a health report."""
         report = HealthReport(
@@ -98,6 +99,7 @@ class PersistenceService:
             health_score=health_score,
             primary_issue=primary_issue,
             suggestions=suggestions or [],
+            issues=score_breakdown or [],  # Store breakdown in issues field
         )
         db.add(report)
         db.commit()
