@@ -85,10 +85,11 @@ function drawCard({ x, y, width, height, title, lines, accent = '0.05 0.55 0.85'
     .join('\n');
 }
 
-export function buildReportPdfBlob({ environment, generatedAt = new Date(), report, telemetrySnapshot = [] }) {
+export function buildReportPdfBlob({ environment, generatedAt = new Date(), report, telemetrySnapshot = [] , healthStatus = 'Unknown'}) {
   const readableTimestamp = formatReadableTimestamp(generatedAt);
   const healthLines = [
     `Health score: ${report.healthScore}/100`,
+    `Status: ${healthStatus}`,
   ];
   const fullReport = `Result: ${report.result}` + report.summary
   const summaryLines = wrapText(fullReport, 110);
@@ -130,7 +131,7 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
       width: 168,
       height: 70,
       title: 'Report status',
-      lines: wrapText(`Snapshot captured from the latest successful dashboard telemetry state.`, 30),
+      lines: wrapText(`Snapshot captured from the latest successful database read.`, 30),
       accent: '0.45 0.35 0.9',
       fill: '0.97 0.96 1',
     }),
@@ -156,7 +157,7 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
     }),
     drawCard({
       x: 36,
-      y: 176,
+      y: 150,
       width: 260,
       height: 180,
       title: 'Areas of concern',
@@ -166,7 +167,7 @@ export function buildReportPdfBlob({ environment, generatedAt = new Date(), repo
     }),
     drawCard({
       x: 316,
-      y: 176,
+      y: 150,
       width: 260,
       height: 180,
       title: 'Suggested improvements',

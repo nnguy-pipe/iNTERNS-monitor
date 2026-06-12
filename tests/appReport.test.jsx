@@ -237,9 +237,9 @@ describe('report exports in the dashboard', () => {
     render(<App />);
 
     const summaryMatches = await screen.findAllByText(/database latency is elevated/i);
-    expect(summaryMatches.length).toBeGreaterThanOrEqual(3);
-    expect(screen.getAllByText('73').length).toBeGreaterThan(0);
+    expect(summaryMatches.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('100').length).toBeGreaterThan(0);
     expect(screen.getByText(/Review query load/i)).toBeTruthy();
-    expect(screen.getByText(/Source: Backend/i)).toBeTruthy();
+    expect(screen.getByText(/Source: Live telemetry/i)).toBeTruthy();
   });
 });

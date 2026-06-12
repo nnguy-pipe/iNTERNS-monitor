@@ -134,9 +134,9 @@ function App() {
     () => buildDisplayReport(backendReports[environment], fallbackReport),
     [backendReports, environment, fallbackReport]
   );
-  const healthStatus = healthSnapshot.status;
-  const healthScore = displayReport.healthScore;
-  const summary = displayReport.summary;
+  const displayStatus = healthSnapshot.status;
+  const healthScore = healthSnapshot.healthScore;
+  const summary = healthSnapshot.summary;
   const skills = mockSkills[environment] || [];
 
   function triggerDownload(blob, filename) {
@@ -188,6 +188,7 @@ function App() {
         generatedAt: exportMoment,
         report: reportSnapshot,
         telemetrySnapshot: reportSnapshot.telemetrySnapshot,
+        healthStatus: displayStatus,
       });
       triggerDownload(blob, `report-${environment.toLowerCase()}-${timestamp}.pdf`);
       setExportMessage('success', `PDF download started (${formatReadableTimestamp(exportMoment)}).`);
@@ -320,17 +321,17 @@ function App() {
         environments={environments}
         onEnvironmentChange={setEnvironment}
         lastUpdated={updatedAt}
-        status={healthStatus}
+        status={displayStatus}
       />
       <PageShell>
         <div className="space-y-10">
           <HealthSummary
-            status={healthStatus}
+            status={displayStatus}
             score={healthScore}
             activeAlerts={activeAlerts.length}
             environment={environment}
             summary={summary}
-            scoreSource={backendReports[environment] ? 'backend' : 'fallback'}
+            scoreSource="live"
             onOpenReport={openReport}
           />
 

@@ -99,24 +99,8 @@ function AgentCard({
           <h3 className="text-lg font-semibold text-slate-900">
             {displayName}
           </h3>
-
           {scope && <p className="mt-1 text-xs text-slate-500">{scope}</p>}
-
-          <p className="mt-2 text-xs text-slate-600">
-            Health: <span className="font-semibold text-slate-900">{healthStatus}</span>
-          </p>
-
           <div className="mt-3 space-y-1">
-            {latestFinding && (
-              <p className="text-xs text-slate-500">
-                Finding: {latestFinding}
-              </p>
-            )}
-            {lastChecked && String(lastChecked).toLowerCase() !== 'null' && (
-              <p className="text-xs text-slate-500">
-                Checked: {lastChecked}
-              </p>
-            )}
             <p className="text-xs text-slate-500">
               CPU: {formatNumber(cpu)}%
             </p>
@@ -134,7 +118,6 @@ function AgentCard({
             </p>
           </div>
         </div>
-
         <StatusBadge status={healthStatus} />
       </div>
     </article>
